@@ -7,7 +7,7 @@ echo "=== stackSentinel entrypoint ==="
 # === REQUIRED PARAMS =====
 # =========================
 
-: "${BASE_DIR:?BASE_DIR is required}"
+: "${OUTPUT_DIR:?OUTPUT_DIR is required}"
 : "${DATA_DIR:?DATA_DIR is required}"
 : "${ORB_DIR:?ORB_DIR is required}"
 : "${DEM:?DEM is required}"
@@ -85,7 +85,7 @@ fi
 # =========================
 # === WORKDIR ============
 # =========================
-WORKDIR="${BASE_DIR}/stack_${ORIG_DATA_NAME}_${RANGE_TAG}_c${C}_z${Z}_r${R}_f${F}"
+WORKDIR="${OUTPUT_DIR}/stack_${ORIG_DATA_NAME}_${RANGE_TAG}_c${C}_z${Z}_r${R}_f${F}"
 
 START_TOTAL=$(date +%s)
 

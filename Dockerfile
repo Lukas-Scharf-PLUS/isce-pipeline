@@ -29,5 +29,10 @@ RUN chmod +x /entrypoint.sh
 COPY scripts /scripts
 RUN chmod +x /scripts/run_stackSentinel.sh
 
+
+ENV PATH="/usr/local/bin:${PATH}"
+
+RUN ln -sf /usr/lib/python3.8/dist-packages/isce2/applications/looks.py /usr/local/bin/looks.py
+
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["bash"]

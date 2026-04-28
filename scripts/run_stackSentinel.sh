@@ -105,6 +105,98 @@ mkdir -p "$AUX_DIR"
 
 
 ls "$DATA_DIR"/* | sort > "$WORKDIR/input_scenes.txt"
+
+
+# =========================
+# === PARAMETER LOG =======
+# =========================
+
+PARAM_LOG="$WORKDIR/parameters.log"
+
+echo "=== Writing parameter log to $PARAM_LOG ==="
+
+{
+    echo "===== STACK SENTINEL PARAMETERS ====="
+    echo "RUN_ID=$(date +%Y%m%d_%H%M%S)"
+    echo "DATE=$(date)"
+    echo ""
+
+    echo "---- PATHS ----"
+    echo "BASE_DIR=$BASE_DIR"
+    echo "DATA_DIR=$DATA_DIR"
+    echo "ORB_DIR=$ORB_DIR"
+    echo "DEM=$DEM"
+    echo "AUX_DIR=$AUX_DIR"
+    echo ""
+
+    echo "---- AOI ----"
+    echo "BBOX=$BBOX"
+    echo ""
+
+    echo "---- TIME ----"
+    echo "REF_DATE=$REF_DATE"
+    echo "START_DATE=${START_DATE:-<not set>}"
+    echo "END_DATE=${END_DATE:-<not set>}"
+    echo "RANGE_TAG=$RANGE_TAG"
+    echo ""
+
+    echo "---- INPUT DATA ----"
+    echo "INPUT_SCENES_FILE=$WORKDIR/input_scenes.txt"
+    echo "NUM_SCENES=$(wc -l < "$WORKDIR/input_scenes.txt")"
+    echo ""
+
+    echo "---- PROCESSING PARAMS ----"
+    echo "C=$C"
+    echo "Z=$Z"
+    echo "R=$R"
+    echo "F=$F"
+    echo ""
+
+    echo "---- PARALLELIZATION ----"
+    echo "NUM_PROC=$NUM_PROC"
+    echo "OMP_THREADS (user setting)=$OMP_THREADS"
+    echo "OMP_NUM_THREADS (effective)=$OMP_NUM_THREADS"
+    echo "OPENBLAS_NUM_THREADS=$OPENBLAS_NUM_THREADS"
+    echo "MKL_NUM_THREADS=$MKL_NUM_THREADS"
+    echo ""
+
+    echo "---- DERIVED ----"
+    echo "WORKDIR=$WORKDIR"
+    echo "ORIG_DATA_NAME=$ORIG_DATA_NAME"
+    echo ""
+
+    echo "---- SYSTEM ----"
+    echo "HOSTNAME=$(hostname)"
+    echo "USER=$(whoami)"
+    echo "PWD=$(pwd)"
+    echo "NPROC=$(nproc)"
+    echo "KERNEL=$(uname -r)"
+    echo ""
+
+    echo "---- MEMORY ----"
+    free -h || true
+    echo ""
+
+    echo "---- ULIMIT ----"
+    ulimit -a || true
+    echo ""
+
+    echo "---- CGROUP MEMORY (container limits) ----"
+    cat /sys/fs/cgroup/memory.max 2>/dev/null || true
+    cat /sys/fs/cgroup/memory.limit_in_bytes 2>/dev/null || true
+    echo ""
+
+    echo "---- DISK ----"
+    df -h "$BASE_DIR" || true
+    echo ""
+
+    echo "---- ENV (filtered) ----"
+    env | grep -E '^(OMP|MKL|OPENBLAS|NUM_PROC|BASE_DIR|DATA_DIR|WORKDIR)' || true
+    echo ""
+
+    echo "====================================="
+} | tee "$PARAM_LOG"
+
 # =====================================================
 # === RUN stackSentinel.py =============================
 # =====================================================

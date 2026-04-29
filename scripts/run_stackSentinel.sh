@@ -38,8 +38,64 @@ export MKL_NUM_THREADS="$OMP_THREADS"
 
 
 # =========================
-# === OPTIONAL SUBSET =====
+# === DEBUG INPUT =========
 # =========================
+
+echo "========== DEBUG INPUT =========="
+echo "OUTPUT_DIR=$OUTPUT_DIR"
+echo "DATA_DIR=$DATA_DIR"
+echo "ORB_DIR=$ORB_DIR"
+echo "DEM=$DEM"
+echo "AUX_DIR=$AUX_DIR"
+echo "================================="
+
+if [ ! -d "$DATA_DIR" ]; then
+    echo "❌ ERROR: DATA_DIR does not exist!"
+    exit 1
+fi
+
+echo "=== CONTENT OF DATA_DIR ==="
+ls -al "$DATA_DIR" || true
+
+echo "=== RECURSIVE STRUCTURE ==="
+ls -R "$DATA_DIR" || true
+
+# detect SAFE files robustly
+shopt -s nullglob
+SAFE_FILES=("$DATA_DIR"/*.SAFE)
+
+echo "=== SAFE FILE DETECTION ==="
+echo "Found ${#SAFE_FILES[@]} SAFE files in $DATA_DIR"
+
+if [[ ${#SAFE_FILES[@]} -eq 0 ]]; then
+    echo "⚠️ No SAFE files found directly in DATA_DIR"
+
+    echo "Trying one level deeper..."
+
+    SUBDIRS=("$DATA_DIR"/*/)
+    FOUND=0
+
+    for d in "${SUBDIRS[@]}"; do
+        inner=("$d"/*.SAFE)
+        if [[ ${#inner[@]} -gt 0 ]]; then
+            echo "✅ Found SAFE files in subdirectory: $d"
+            DATA_DIR="$d"
+            SAFE_FILES=("${inner[@]}")
+            FOUND=1
+            break
+        fi
+    done
+
+    if [[ $FOUND -eq 0 ]]; then
+        echo "❌ ERROR: No SAFE files found anywhere"
+        exit 1
+    fi
+fi
+
+echo "Using DATA_DIR=$DATA_DIR"
+echo "SAFE count=${#SAFE_FILES[@]}"
+
+
 ORIG_DATA_NAME=$(basename "$DATA_DIR")
 
 : "${START_DATE:=}"
@@ -47,29 +103,40 @@ ORIG_DATA_NAME=$(basename "$DATA_DIR")
 
 if [[ -n "$START_DATE" && -n "$END_DATE" ]]; then
 
-    echo "Subsetting scenes: $START_DATE → $END_DATE"
+    echo "=== SUBSETTING ==="
+    echo "Range: $START_DATE → $END_DATE"
 
     SUBSET_DIR="${OUTPUT_DIR}/subset_${START_DATE}_${END_DATE}"
     rm -rf "$SUBSET_DIR"
     mkdir -p "$SUBSET_DIR"
 
-    echo "=== DEBUG DATA_DIR CONTENT ==="
-    ls -R "$DATA_DIR"
+    MATCHED=0
 
-    for f in "$DATA_DIR"/*; do
+    for f in "${SAFE_FILES[@]}"; do
         fname=$(basename "$f")
+
         date=$(echo "$fname" | grep -oE '[0-9]{8}' | head -n1 || true)
 
-        [[ -z "$date" ]] && continue
+        echo "Checking: $fname → date=$date"
+
+        if [[ -z "$date" ]]; then
+            echo "Skipping (no date found)"
+            continue
+        fi
 
         if (( date >= START_DATE && date <= END_DATE )); then
+            echo "✅ MATCH: $fname"
             ln -s "$f" "$SUBSET_DIR/$fname"
+            ((MATCHED++))
+        else
+            echo "❌ OUTSIDE RANGE"
         fi
     done
 
-    count=$(find "$SUBSET_DIR" -maxdepth 1 -type l | wc -l)
-    if [[ "$count" -eq 0 ]]; then
-        echo "ERROR: no scenes in selected date range"
+    echo "Matched files: $MATCHED"
+
+    if [[ "$MATCHED" -eq 0 ]]; then
+        echo "❌ ERROR: no scenes in selected date range"
         exit 1
     fi
 
@@ -77,7 +144,9 @@ if [[ -n "$START_DATE" && -n "$END_DATE" ]]; then
     DATA_DIR="$SUBSET_DIR"
 fi
 
-
+# =========================
+# === RANGE TAG ===========
+# =========================
 if [[ -n "$START_DATE" && -n "$END_DATE" ]]; then
     RANGE_TAG="${START_DATE}_${END_DATE}"
 else

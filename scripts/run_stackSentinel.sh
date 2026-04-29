@@ -13,7 +13,7 @@ echo "=== stackSentinel entrypoint ==="
 : "${DEM:?DEM is required}"
 
 # optional but usually needed
-: "${AUX_DIR:=${BASE_DIR}/aux}"
+: "${AUX_DIR:=${OUTPUT_DIR}/aux}"
 
 # =========================
 # === DEFAULTS ============
@@ -49,7 +49,7 @@ if [[ -n "$START_DATE" && -n "$END_DATE" ]]; then
 
     echo "Subsetting scenes: $START_DATE → $END_DATE"
 
-    SUBSET_DIR="${BASE_DIR}/subset_${START_DATE}_${END_DATE}"
+    SUBSET_DIR="${OUTPUT_DIR}/subset_${START_DATE}_${END_DATE}"
     rm -rf "$SUBSET_DIR"
     mkdir -p "$SUBSET_DIR"
 
@@ -64,7 +64,7 @@ if [[ -n "$START_DATE" && -n "$END_DATE" ]]; then
         fi
     done
 
-    count=$(ls "$SUBSET_DIR" | wc -l)
+    count=$(find "$SUBSET_DIR" -maxdepth 1 -type l | wc -l)
     if [[ "$count" -eq 0 ]]; then
         echo "ERROR: no scenes in selected date range"
         exit 1
@@ -90,7 +90,7 @@ WORKDIR="${OUTPUT_DIR}/stack_${ORIG_DATA_NAME}_${RANGE_TAG}_c${C}_z${Z}_r${R}_f$
 START_TOTAL=$(date +%s)
 
 # safety check
-if [[ -z "$WORKDIR" || "$WORKDIR" == "/" || "$WORKDIR" == "$BASE_DIR" ]]; then
+if [[ -z "$WORKDIR" || "$WORKDIR" == "/" || "$WORKDIR" == "$OUTPUT_DIR" ]]; then
     echo "ERROR: WORKDIR is unsafe!"
     exit 1
 fi
@@ -122,7 +122,7 @@ echo "=== Writing parameter log to $PARAM_LOG ==="
     echo ""
 
     echo "---- PATHS ----"
-    echo "BASE_DIR=$BASE_DIR"
+    echo "OUTPUT_DIR=$OUTPUT_DIR"
     echo "DATA_DIR=$DATA_DIR"
     echo "ORB_DIR=$ORB_DIR"
     echo "DEM=$DEM"
@@ -187,11 +187,11 @@ echo "=== Writing parameter log to $PARAM_LOG ==="
     echo ""
 
     echo "---- DISK ----"
-    df -h "$BASE_DIR" || true
+    df -h "$OUTPUT_DIR" || true
     echo ""
 
     echo "---- ENV (filtered) ----"
-    env | grep -E '^(OMP|MKL|OPENBLAS|NUM_PROC|BASE_DIR|DATA_DIR|WORKDIR)' || true
+    env | grep -E '^(OMP|MKL|OPENBLAS|NUM_PROC|OUTPUT_DIR|DATA_DIR|WORKDIR)' || true
     echo ""
 
     echo "====================================="

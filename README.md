@@ -2,13 +2,16 @@
 this builds a docker image for using ISCE 
 
 
+
+For local usage:
+
 docker run --rm \
   -v ~/projects/ADUCAT/data:/data \
 
   # =========================
   # === REQUIRED ============
   # =========================
-  -e BASE_DIR=/data \
+  -e OUTPUT_DIR=/data \
   -e DATA_DIR=/data/ASF_SLC/Ascending_73 \
   -e ORB_DIR=/data/orbits_Sentinel-1 \
   -e DEM=/data/DEM/DEM_30m.wgs84.dem \
@@ -23,7 +26,7 @@ docker run --rm \
   # =========================
   # === AOI =================
   # =========================
-  -e BBOX="48.17 48.22 16.34 16.37" \
+  -e "48.17229133 48.2238674 16.34362814 16.37115647" \
 
   # =========================
   # === PROCESSING PARAMS ===
@@ -34,7 +37,7 @@ docker run --rm \
   -e F=0.5 \
 
   # =========================
-  # === PARALLELIZATION =====
+  # === PARALLELIZATION (also optional) =====
   # =========================
   -e NUM_PROC=4 \
   -e OMP_THREADS=2 \
@@ -55,7 +58,7 @@ docker run --rm \
 🧪 Minimal / lightweight test run
 docker run --rm \
   -v ~/projects/ADUCAT/data:/data \
-  -e BASE_DIR=/data \
+  -e OUTPUT_DIR=/data \
   -e DATA_DIR=/data/ASF_SLC/Ascending_73 \
   -e ORB_DIR=/data/orbits_Sentinel-1 \
   -e DEM=/data/DEM/DEM_30m.wgs84.dem \
@@ -69,5 +72,5 @@ docker run --rm \
   -e F=0.3 \
   -e NUM_PROC=2 \
   -e OMP_THREADS=3 \
-  isce-stack:0.1.0 \
+  isce-stack:0.1.1 \
   /scripts/run_stackSentinel.sh

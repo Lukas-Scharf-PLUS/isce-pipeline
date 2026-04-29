@@ -1,6 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
+echo "### VERSION 0.1.2 DEBUG ###"
 echo "=== stackSentinel entrypoint ==="
 
 # =========================

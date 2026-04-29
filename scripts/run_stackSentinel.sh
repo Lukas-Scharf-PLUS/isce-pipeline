@@ -53,6 +53,9 @@ if [[ -n "$START_DATE" && -n "$END_DATE" ]]; then
     rm -rf "$SUBSET_DIR"
     mkdir -p "$SUBSET_DIR"
 
+    echo "=== DEBUG DATA_DIR CONTENT ==="
+    ls -R "$DATA_DIR"
+
     for f in "$DATA_DIR"/*; do
         fname=$(basename "$f")
         date=$(echo "$fname" | grep -oE '[0-9]{8}' | head -n1 || true)

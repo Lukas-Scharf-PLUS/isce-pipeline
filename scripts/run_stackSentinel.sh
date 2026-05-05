@@ -30,6 +30,9 @@ echo "=== stackSentinel entrypoint ==="
 : "${NUM_PROC:=3}"
 : "${OMP_THREADS:=2}"
 
+: "${DRY_RUN:=false}"
+: "${STAGE:=all}"
+
 # =========================
 # === THREAD CONTROL ======
 # =========================
@@ -55,11 +58,11 @@ if [ ! -d "$DATA_DIR" ]; then
     exit 1
 fi
 
-echo "=== CONTENT OF DATA_DIR ==="
-ls -al "$DATA_DIR" || true
+#echo "=== CONTENT OF DATA_DIR ==="
+#ls -al "$DATA_DIR" || true
 
-echo "=== RECURSIVE STRUCTURE ==="
-ls -R "$DATA_DIR" || true
+#echo "=== RECURSIVE STRUCTURE ==="
+#ls -R "$DATA_DIR" || true
 
 # detect SAFE files robustly
 shopt -s nullglob
@@ -99,60 +102,51 @@ echo "SAFE count=${#SAFE_FILES[@]}"
 
 ORIG_DATA_NAME=$(basename "$DATA_DIR")
 
-: "${START_DATE:=}"
-: "${END_DATE:=}"
+# =========================
+# === RANGE TAG (AUTO) ====
+# =========================
 
-if [[ -n "$START_DATE" && -n "$END_DATE" ]]; then
+echo "=== Detecting date range from SAFE files ==="
 
-    echo "=== SUBSETTING ==="
-    echo "Range: $START_DATE → $END_DATE"
+# collect SAFE files
+mapfile -t SAFE_FILES < <(find "$DATA_DIR" -maxdepth 1 -type d -name "*.SAFE" | sort)
 
-    SUBSET_DIR="${OUTPUT_DIR}/subset_${START_DATE}_${END_DATE}"
-    rm -rf "$SUBSET_DIR"
-    mkdir -p "$SUBSET_DIR"
+if [[ "${#SAFE_FILES[@]}" -eq 0 ]]; then
+    echo "ERROR: No SAFE files found in $DATA_DIR"
+    exit 1
+fi
 
-    MATCHED=0
+DATES=()
 
-    for f in "${SAFE_FILES[@]}"; do
-        fname=$(basename "$f")
+for f in "${SAFE_FILES[@]}"; do
+    fname=$(basename "$f")
 
-        date=$(echo "$fname" | grep -oE '[0-9]{8}' | head -n1 || true)
+    # extract first YYYYMMDD in filename
+    date=$(echo "$fname" | grep -oE '[0-9]{8}' | head -n1 || true)
 
-        echo "Checking: $fname → date=$date"
-
-        if [[ -z "$date" ]]; then
-            echo "Skipping (no date found)"
-            continue
-        fi
-
-        if (( date >= START_DATE && date <= END_DATE )); then
-            echo "✅ MATCH: $fname"
-            ln -s "$f" "$SUBSET_DIR/$fname"
-            ((MATCHED++))
-        else
-            echo "❌ OUTSIDE RANGE"
-        fi
-    done
-
-    echo "Matched files: $MATCHED"
-
-    if [[ "$MATCHED" -eq 0 ]]; then
-        echo "❌ ERROR: no scenes in selected date range"
-        exit 1
+    if [[ -n "$date" ]]; then
+        DATES+=("$date")
+    else
+        echo "WARNING: could not extract date from $fname"
     fi
+done
 
-    echo "Subset created: $SUBSET_DIR"
-    DATA_DIR="$SUBSET_DIR"
+if [[ "${#DATES[@]}" -eq 0 ]]; then
+    echo "ERROR: No valid dates found in SAFE filenames"
+    exit 1
 fi
 
-# =========================
-# === RANGE TAG ===========
-# =========================
-if [[ -n "$START_DATE" && -n "$END_DATE" ]]; then
-    RANGE_TAG="${START_DATE}_${END_DATE}"
-else
-    RANGE_TAG="all"
-fi
+# sort and get min/max
+IFS=$'\n' SORTED=($(sort <<<"${DATES[*]}"))
+unset IFS
+
+MIN_DATE="${SORTED[0]}"
+MAX_DATE="${SORTED[-1]}"
+
+RANGE_TAG="${MIN_DATE}_${MAX_DATE}"
+
+echo "Detected date range: $MIN_DATE → $MAX_DATE"
+echo "Using RANGE_TAG=$RANGE_TAG"
 
 
 # =========================
@@ -168,8 +162,14 @@ if [[ -z "$WORKDIR" || "$WORKDIR" == "/" || "$WORKDIR" == "$OUTPUT_DIR" ]]; then
     exit 1
 fi
 
-# remove current working directory if it already exists
-rm -rf -- "$WORKDIR"
+# set/remove current working directory if it already exists
+if [[ "$STAGE" == "stage1" ]]; then
+    echo "Stage1: creating fresh WORKDIR"
+    rm -rf "$WORKDIR"
+    mkdir -p "$WORKDIR"
+else
+    echo "Reusing existing WORKDIR: $WORKDIR"
+fi
 
 # create the working directory where results are saved
 mkdir -p "$WORKDIR"
@@ -270,34 +270,49 @@ echo "=== Writing parameter log to $PARAM_LOG ==="
     echo "====================================="
 } | tee "$PARAM_LOG"
 
+
+
+if [[ "$DRY_RUN" == "true" ]]; then
+    echo "DRY_RUN enabled → exiting before processing"
+    exit 0
+fi
+
 # =====================================================
 # === RUN stackSentinel.py =============================
 # =====================================================
 
 echo "=== Running stackSentinel.py ==="
 
-START_SS=$(date +%s)
+if [[ "${STAGE:-all}" == "stage1" ]]; then
+    echo "=== Running stackSentinel.py (stage1 only) ==="
 
-stackSentinel.py \
-  -s "$DATA_DIR" \
-  -o "$ORB_DIR" \
-  -a "$AUX_DIR" \
-  -d "$DEM" \
-  -w "$WORKDIR" \
-  -b "$BBOX" \
-  -m "$REF_DATE" \
-  -c "$C" \
-  -z "$Z" \
-  -r "$R" \
-  -f "$F" \
-  --num_proc "$NUM_PROC" \
-  2>&1 | tee "$WORKDIR/logs/stackSentinel.log"
+    START_SS=$(date +%s)
 
-END_SS=$(date +%s)
-SS_TIME=$((END_SS - START_SS))
+    stackSentinel.py \
+      -s "$DATA_DIR" \
+      -o "$ORB_DIR" \
+      -a "$AUX_DIR" \
+      -d "$DEM" \
+      -w "$WORKDIR" \
+      -b "$BBOX" \
+      -m "$REF_DATE" \
+      -c "$C" \
+      -z "$Z" \
+      -r "$R" \
+      -f "$F" \
+      --num_proc "$NUM_PROC" \
+      2>&1 | tee "$WORKDIR/logs/stackSentinel.log"
 
-printf "stackSentinel.py took %02d:%02d (mm:ss)\n" $((SS_TIME/60)) $((SS_TIME%60)) \
-    | tee -a "$WORKDIR/timing.log"
+    END_SS=$(date +%s)
+    SS_TIME=$((END_SS - START_SS))
+
+    printf "stackSentinel.py took %02d:%02d (mm:ss)\n" \
+        $((SS_TIME/60)) $((SS_TIME%60)) \
+        | tee -a "$WORKDIR/timing.log"
+
+else
+    echo "=== Skipping stackSentinel.py (STAGE=$STAGE) ==="
+fi
 
 # =====================================================
 # === RUN ALL STEPS ====================================
@@ -320,6 +335,40 @@ ln -sf "$DEM" .
 
 for runfile in run_*; do
     [ -f "$runfile" ] || continue
+
+    # =========================
+    # === EXTRACT RUN NUMBER ==
+    # =========================
+    run_id=$(echo "$runfile" | sed -E 's/run_([0-9]+).*/\1/')
+    run_id=$((10#$run_id))
+
+    # optional debug
+    echo "STAGE=$STAGE → running run_id=$run_id"
+
+    # =========================
+    # === STAGE FILTER ========
+    # =========================
+    case "${STAGE:-all}" in
+    stage1)
+        (( run_id < 11 )) || continue
+        ;;
+    stage2)
+        (( run_id >= 11 && run_id < 16 )) || continue
+        ;;
+    stage3)
+        (( run_id == 16 )) || continue
+        ;;
+    all)
+        ;;
+    *)
+        echo "ERROR: unknown STAGE=$STAGE"
+        exit 1
+        ;;
+    esac
+
+    # =========================
+    # === ORIGINAL LOGIC ======
+    # =========================
     echo ">>> Running $runfile"
 
     START_STEP=$(date +%s)
@@ -334,6 +383,7 @@ for runfile in run_*; do
 
     printf ">>> %s took %02d:%02d (mm:ss)\n" "$runfile" $((DURATION/60)) $((DURATION%60)) \
         | tee -a "$WORKDIR/timing.log"
+
 done
 
 # =====================================================

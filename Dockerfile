@@ -29,7 +29,7 @@ RUN chmod +x /entrypoint.sh
 # copy scripts into container
 COPY scripts /scripts
 # make them executable
-RUN chmod +x /opt/scripts/*.sh
+RUN chmod +x /scripts/*.sh
 
 
 ENV PATH="/usr/local/bin:${PATH}"

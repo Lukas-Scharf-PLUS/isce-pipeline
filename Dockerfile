@@ -26,8 +26,10 @@ RUN git clone --depth=1 https://github.com/isce-framework/isce2.git /opt/isce2-s
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
+# copy scripts into container
 COPY scripts /scripts
-RUN chmod +x /scripts/run_stackSentinel.sh
+# make them executable
+RUN chmod +x /opt/scripts/*.sh
 
 
 ENV PATH="/usr/local/bin:${PATH}"

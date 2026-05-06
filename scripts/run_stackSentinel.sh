@@ -1,7 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 
-echo "### VERSION 0.1.2 DEBUG ###"
 echo "=== stackSentinel entrypoint ==="
 
 # =========================
@@ -20,7 +19,12 @@ echo "=== stackSentinel entrypoint ==="
 # === DEFAULTS ============
 # =========================
 : "${BBOX:=48.17 48.22 16.34 16.37}"
-: "${REF_DATE:?REF_DATE is required}"
+
+: "${STAGE:=all}"
+
+if [[ "$STAGE" == "stage1" || "$STAGE" == "all" ]]; then
+    : "${REF_DATE:?REF_DATE is required}"
+fi
 
 : "${C:=2}"
 : "${Z:=2}"
@@ -31,7 +35,7 @@ echo "=== stackSentinel entrypoint ==="
 : "${OMP_THREADS:=2}"
 
 : "${DRY_RUN:=false}"
-: "${STAGE:=all}"
+
 
 # =========================
 # === THREAD CONTROL ======
@@ -153,19 +157,11 @@ if [[ "$STAGE" == "stage1" || "$STAGE" == "all" ]]; then
 else
     echo "=== Skipping SAFE + RANGE detection (STAGE=$STAGE) ==="
 
-    # reuse from existing WORKDIR
-    EXISTING_DIR=$(find "$OUTPUT_DIR" -maxdepth 1 -type d -name "stack_*" | sort | head -n1)
+    # require WORKDIR explicitly
+    : "${WORKDIR:?WORKDIR must be provided for stage2/3}"
 
-    if [[ -z "$EXISTING_DIR" ]]; then
-        echo "❌ ERROR: No existing stack_* directory found in $OUTPUT_DIR"
-        exit 1
-    fi
+    echo "Using provided WORKDIR=$WORKDIR"
 
-    WORKDIR="$EXISTING_DIR"
-
-    echo "Reusing WORKDIR=$WORKDIR"
-
-    # extract components back
     BASENAME=$(basename "$WORKDIR")
 
     ORIG_DATA_NAME=$(echo "$BASENAME" | cut -d'_' -f2- | sed -E 's/_[0-9]{8}_[0-9]{8}_c.*//')
@@ -194,7 +190,7 @@ if [[ -z "$WORKDIR" || "$WORKDIR" == "/" || "$WORKDIR" == "$OUTPUT_DIR" ]]; then
 fi
 
 # set/remove current working directory if it already exists
-if [[ "$STAGE" == "stage1" ]]; then
+if [[ "$STAGE" == "stage1" || "$STAGE" == "all" ]]; then
     echo "Stage1: creating fresh WORKDIR"
     rm -rf "$WORKDIR"
     mkdir -p "$WORKDIR"
@@ -217,92 +213,94 @@ fi
 # === PARAMETER LOG =======
 # =========================
 
-PARAM_LOG="$WORKDIR/parameters.log"
+if [[ "$STAGE" == "stage1" || "$STAGE" == "all" ]]; then
 
-echo "=== Writing parameter log to $PARAM_LOG ==="
+    PARAM_LOG="$WORKDIR/parameters.log"
 
-{
-    echo "===== STACK SENTINEL PARAMETERS ====="
-    echo "RUN_ID=$(date +%Y%m%d_%H%M%S)"
-    echo "DATE=$(date)"
-    echo ""
+    echo "=== Writing parameter log to $PARAM_LOG ==="
 
-    echo "---- PATHS ----"
-    echo "OUTPUT_DIR=$OUTPUT_DIR"
-    echo "DATA_DIR=$DATA_DIR"
-    echo "ORB_DIR=$ORB_DIR"
-    echo "DEM=$DEM"
-    echo "AUX_DIR=$AUX_DIR"
-    echo ""
+    {
+        echo "===== STACK SENTINEL PARAMETERS ====="
+        echo "RUN_ID=$(date +%Y%m%d_%H%M%S)"
+        echo "DATE=$(date)"
+        echo ""
 
-    echo "---- AOI ----"
-    echo "BBOX=$BBOX"
-    echo ""
+        echo "---- PATHS ----"
+        echo "OUTPUT_DIR=$OUTPUT_DIR"
+        echo "DATA_DIR=$DATA_DIR"
+        echo "ORB_DIR=$ORB_DIR"
+        echo "DEM=$DEM"
+        echo "AUX_DIR=$AUX_DIR"
+        echo ""
 
-    echo "---- TIME ----"
-    echo "REF_DATE=$REF_DATE"
-    echo "START_DATE=${START_DATE:-<not set>}"
-    echo "END_DATE=${END_DATE:-<not set>}"
-    echo "RANGE_TAG=$RANGE_TAG"
-    echo ""
+        echo "---- AOI ----"
+        echo "BBOX=$BBOX"
+        echo ""
 
-    echo "---- INPUT DATA ----"
-    echo "INPUT_SCENES_FILE=$WORKDIR/input_scenes.txt"
-    echo "NUM_SCENES=$(wc -l < "$WORKDIR/input_scenes.txt")"
-    echo ""
+        echo "---- TIME ----"
+        echo "REF_DATE=${REF_DATE:-<not set>}"
+        echo "START_DATE=${START_DATE:-<not set>}"
+        echo "END_DATE=${END_DATE:-<not set>}"
+        echo "RANGE_TAG=$RANGE_TAG"
+        echo ""
 
-    echo "---- PROCESSING PARAMS ----"
-    echo "C=$C"
-    echo "Z=$Z"
-    echo "R=$R"
-    echo "F=$F"
-    echo ""
+        echo "---- INPUT DATA ----"
+        echo "INPUT_SCENES_FILE=$WORKDIR/input_scenes.txt"
+        echo "NUM_SCENES=$(wc -l < "$WORKDIR/input_scenes.txt")"
+        echo ""
 
-    echo "---- PARALLELIZATION ----"
-    echo "NUM_PROC=$NUM_PROC"
-    echo "OMP_THREADS (user setting)=$OMP_THREADS"
-    echo "OMP_NUM_THREADS (effective)=$OMP_NUM_THREADS"
-    echo "OPENBLAS_NUM_THREADS=$OPENBLAS_NUM_THREADS"
-    echo "MKL_NUM_THREADS=$MKL_NUM_THREADS"
-    echo ""
+        echo "---- PROCESSING PARAMS ----"
+        echo "C=$C"
+        echo "Z=$Z"
+        echo "R=$R"
+        echo "F=$F"
+        echo ""
 
-    echo "---- DERIVED ----"
-    echo "WORKDIR=$WORKDIR"
-    echo "ORIG_DATA_NAME=$ORIG_DATA_NAME"
-    echo ""
+        echo "---- PARALLELIZATION ----"
+        echo "NUM_PROC=$NUM_PROC"
+        echo "OMP_THREADS (user setting)=$OMP_THREADS"
+        echo "OMP_NUM_THREADS (effective)=$OMP_NUM_THREADS"
+        echo "OPENBLAS_NUM_THREADS=$OPENBLAS_NUM_THREADS"
+        echo "MKL_NUM_THREADS=$MKL_NUM_THREADS"
+        echo ""
 
-    echo "---- SYSTEM ----"
-    echo "HOSTNAME=$(hostname)"
-    echo "USER=$(whoami)"
-    echo "PWD=$(pwd)"
-    echo "NPROC=$(nproc)"
-    echo "KERNEL=$(uname -r)"
-    echo ""
+        echo "---- DERIVED ----"
+        echo "WORKDIR=$WORKDIR"
+        echo "ORIG_DATA_NAME=$ORIG_DATA_NAME"
+        echo ""
 
-    echo "---- MEMORY ----"
-    free -h || true
-    echo ""
+        echo "---- SYSTEM ----"
+        echo "HOSTNAME=$(hostname)"
+        echo "USER=$(whoami)"
+        echo "PWD=$(pwd)"
+        echo "NPROC=$(nproc)"
+        echo "KERNEL=$(uname -r)"
+        echo ""
 
-    echo "---- ULIMIT ----"
-    ulimit -a || true
-    echo ""
+        echo "---- MEMORY ----"
+        free -h || true
+        echo ""
 
-    echo "---- CGROUP MEMORY (container limits) ----"
-    cat /sys/fs/cgroup/memory.max 2>/dev/null || true
-    cat /sys/fs/cgroup/memory.limit_in_bytes 2>/dev/null || true
-    echo ""
+        echo "---- ULIMIT ----"
+        ulimit -a || true
+        echo ""
 
-    echo "---- DISK ----"
-    df -h "$OUTPUT_DIR" || true
-    echo ""
+        echo "---- CGROUP MEMORY (container limits) ----"
+        cat /sys/fs/cgroup/memory.max 2>/dev/null || true
+        cat /sys/fs/cgroup/memory.limit_in_bytes 2>/dev/null || true
+        echo ""
 
-    echo "---- ENV (filtered) ----"
-    env | grep -E '^(OMP|MKL|OPENBLAS|NUM_PROC|OUTPUT_DIR|DATA_DIR|WORKDIR)' || true
-    echo ""
+        echo "---- DISK ----"
+        df -h "$OUTPUT_DIR" || true
+        echo ""
 
-    echo "====================================="
-} | tee "$PARAM_LOG"
+        echo "---- ENV (filtered) ----"
+        env | grep -E '^(OMP|MKL|OPENBLAS|NUM_PROC|OUTPUT_DIR|DATA_DIR|WORKDIR)' || true
+        echo ""
 
+        echo "====================================="
+    } | tee "$PARAM_LOG"
+fi
 
 
 if [[ "$DRY_RUN" == "true" ]]; then
@@ -316,7 +314,7 @@ fi
 
 echo "=== Running stackSentinel.py ==="
 
-if [[ "${STAGE:-all}" == "stage1" ]]; then
+if [[ "$STAGE" == "stage1" || "$STAGE" == "all" ]]; then
     echo "=== Running stackSentinel.py (stage1 only) ==="
 
     START_SS=$(date +%s)
@@ -383,12 +381,9 @@ for runfile in run_*; do
     # =========================
     case "${STAGE:-all}" in
     stage1)
-        (( run_id < 11 )) || continue
+        (( run_id < 16 )) || continue
         ;;
     stage2)
-        (( run_id >= 11 && run_id < 16 )) || continue
-        ;;
-    stage3)
         (( run_id == 16 )) || continue
         ;;
     all)

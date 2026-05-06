@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 echo "=== Fetching Sentinel-1 orbit files ==="
 
@@ -7,22 +7,40 @@ echo "=== Fetching Sentinel-1 orbit files ==="
 # === INPUT PARAMETERS ================================
 # =====================================================
 
-SLC_DIR=${SLC_DIR:?ERROR: SLC_DIR not set}
 ORB_DIR=${ORB_DIR:?ERROR: ORB_DIR not set}
 
 CDSE_USERNAME=${CDSE_USERNAME:?Need CDSE_USERNAME}
 CDSE_PASSWORD=${CDSE_PASSWORD:?Need CDSE_PASSWORD}
 
+# Optional inputs
+SLC_DIR=${SLC_DIR:-""}
+START_DATE=${START_DATE:-""}
+END_DATE=${END_DATE:-""}
+
 mkdir -p "$ORB_DIR"
 
-echo "SLC_DIR: $SLC_DIR"
 echo "ORB_DIR: $ORB_DIR"
 
 # =====================================================
 # === DETERMINE DATE RANGE ============================
 # =====================================================
 
-python_range=$(python3 - <<EOF
+if [[ -n "$START_DATE" && -n "$END_DATE" ]]; then
+    echo "Using provided date range"
+else
+    echo "No START_DATE/END_DATE provided → deriving from SLC_DIR"
+
+    if [[ -z "$SLC_DIR" ]]; then
+        echo "ERROR: Either START_DATE/END_DATE OR SLC_DIR must be provided"
+        exit 1
+    fi
+
+    if [[ ! -d "$SLC_DIR" ]]; then
+        echo "ERROR: SLC_DIR does not exist: $SLC_DIR"
+        exit 1
+    fi
+
+    python_range=$(python3 - <<EOF
 from pathlib import Path
 from datetime import datetime, timedelta
 import re
@@ -41,15 +59,15 @@ for p in slc_dir.rglob("*"):
 if not dates:
     raise SystemExit("No Sentinel-1 SLC files found.")
 
-
 start = (min(dates) - timedelta(days=1)).strftime("%Y%m%d")
 end   = (max(dates) + timedelta(days=2)).strftime("%Y%m%d")
 
 print(start, end)
 EOF
-)
+    )
 
-read -r START_DATE END_DATE <<< "$python_range"
+    read -r START_DATE END_DATE <<< "$python_range"
+fi
 
 echo "Orbit range: $START_DATE → $END_DATE"
 

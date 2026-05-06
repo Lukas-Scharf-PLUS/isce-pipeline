@@ -1,3 +1,32 @@
+
+
+# Local runs:
+
+## fetch and normalize orbits
+
+cd ~/projects/ADUCAT
+
+docker run --rm \
+  --env-file .env_cdse \
+  -v $(pwd)/data:/data \
+  -w /data \
+  -e SLC_DIR="/data/ASF_SLC/Ascending_73" \
+  -e ORB_DIR="/data/orbits" \
+  ghcr.io/lukas-scharf-plus/isce-stack:0.1.6 \
+  bash -c "
+    /scripts/fetch_orbits.sh &&
+    /scripts/normalize_orbit_layout.sh /data/orbits /data/orbits_isce true
+  "
+
+
+Explaination for arguments in normalize_orbit_layout.sh:
+it will copy orbit file from /data/orbits to /data/orbits_isce and the underlying folder structure.
+When adding true after it, it will delete the original /data/orbits folder. 
+
+
+
+## stackSentinel.sh
+
 docker run --rm \
   -v ~/projects/ADUCAT/data:/data \
 

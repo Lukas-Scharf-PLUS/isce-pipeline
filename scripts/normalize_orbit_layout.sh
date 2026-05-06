@@ -9,9 +9,11 @@ echo "=== Normalizing Sentinel-1 orbit files for ISCE ==="
 
 SRC_DIR="${1:?ERROR: SRC_DIR not provided}"
 DEST_DIR="${2:?ERROR: DEST_DIR not provided}"
+DELETE_SRC="${3:-false}"   # optional: true/false
 
-echo "SRC_DIR:  $SRC_DIR"
-echo "DEST_DIR: $DEST_DIR"
+echo "SRC_DIR:     $SRC_DIR"
+echo "DEST_DIR:    $DEST_DIR"
+echo "DELETE_SRC:  $DELETE_SRC"
 
 # =====================================================
 # === VALIDATION ======================================
@@ -19,6 +21,12 @@ echo "DEST_DIR: $DEST_DIR"
 
 if [ ! -d "$SRC_DIR" ]; then
   echo "ERROR: SRC_DIR does not exist: $SRC_DIR"
+  exit 1
+fi
+
+# Prevent dangerous cases
+if [[ "$SRC_DIR" == "/" || "$DEST_DIR" == "/" ]]; then
+  echo "ERROR: refusing to operate on root directory"
   exit 1
 fi
 
@@ -37,6 +45,7 @@ mkdir -p \
 
 count=0
 skipped=0
+copied=0
 
 while IFS= read -r -d '' f; do
   bn="$(basename "$f")"
@@ -60,21 +69,45 @@ while IFS= read -r -d '' f; do
 
   target="${DEST_DIR}/${sat}/${typ}/${bn}"
 
-  # create/update symlink
-  ln -sfn "$(realpath "$f")" "$target"
+  # avoid unnecessary copy if file already exists
+  if [ -f "$target" ]; then
+    continue
+  fi
 
+  cp "$f" "$target"
+  copied=$((copied+1))
   count=$((count+1))
+
 done < <(find "$SRC_DIR" -type f \( -iname '*.EOF' \) -print0)
+
+# =====================================================
+# === VALIDATION CHECK ================================
+# =====================================================
+
+if [ "$count" -eq 0 ]; then
+  echo "ERROR: No orbit files processed!"
+  exit 1
+fi
+
+# =====================================================
+# === OPTIONAL CLEANUP ================================
+# =====================================================
+
+if [ "$DELETE_SRC" == "true" ]; then
+  echo "Deleting source directory: $SRC_DIR"
+  rm -rf "$SRC_DIR"
+fi
 
 # =====================================================
 # === SUMMARY =========================================
 # =====================================================
 
 echo "----------------------------------------"
-echo "Normalized files: $count"
-echo "Skipped files:    $skipped"
-echo "Destination:      $DEST_DIR"
+echo "Total processed: $count"
+echo "Copied files:    $copied"
+echo "Skipped files:   $skipped"
+echo "Destination:     $DEST_DIR"
 echo "----------------------------------------"
 
 echo "=== Layout summary ==="
-find "$DEST_DIR" -maxdepth 3 \( -type f -o -type l \) | sort
+find "$DEST_DIR" -maxdepth 3 -type f | sort

@@ -64,95 +64,126 @@ fi
 #echo "=== RECURSIVE STRUCTURE ==="
 #ls -R "$DATA_DIR" || true
 
-# detect SAFE files robustly
-shopt -s nullglob
-SAFE_FILES=("$DATA_DIR"/*.SAFE)
+# =========================
+# === SAFE + RANGE LOGIC ==
+# =========================
 
-echo "=== SAFE FILE DETECTION ==="
-echo "Found ${#SAFE_FILES[@]} SAFE files in $DATA_DIR"
+if [[ "$STAGE" == "stage1" || "$STAGE" == "all" ]]; then
 
-if [[ ${#SAFE_FILES[@]} -eq 0 ]]; then
-    echo "⚠️ No SAFE files found directly in DATA_DIR"
+    # detect SAFE files robustly
+    shopt -s nullglob
+    SAFE_FILES=("$DATA_DIR"/*.SAFE)
 
-    echo "Trying one level deeper..."
+    echo "=== SAFE FILE DETECTION ==="
+    echo "Found ${#SAFE_FILES[@]} SAFE files in $DATA_DIR"
 
-    SUBDIRS=("$DATA_DIR"/*/)
-    FOUND=0
+    if [[ ${#SAFE_FILES[@]} -eq 0 ]]; then
+        echo "⚠️ No SAFE files found directly in DATA_DIR"
 
-    for d in "${SUBDIRS[@]}"; do
-        inner=("$d"/*.SAFE)
-        if [[ ${#inner[@]} -gt 0 ]]; then
-            echo "✅ Found SAFE files in subdirectory: $d"
-            DATA_DIR="$d"
-            SAFE_FILES=("${inner[@]}")
-            FOUND=1
-            break
+        echo "Trying one level deeper..."
+
+        SUBDIRS=("$DATA_DIR"/*/)
+        FOUND=0
+
+        for d in "${SUBDIRS[@]}"; do
+            inner=("$d"/*.SAFE)
+            if [[ ${#inner[@]} -gt 0 ]]; then
+                echo "✅ Found SAFE files in subdirectory: $d"
+                DATA_DIR="$d"
+                SAFE_FILES=("${inner[@]}")
+                FOUND=1
+                break
+            fi
+        done
+
+        if [[ $FOUND -eq 0 ]]; then
+            echo "❌ ERROR: No SAFE files found anywhere"
+            exit 1
+        fi
+    fi
+
+    echo "Using DATA_DIR=$DATA_DIR"
+    echo "SAFE count=${#SAFE_FILES[@]}"
+
+    ORIG_DATA_NAME=$(basename "$DATA_DIR")
+
+    # =========================
+    # === RANGE TAG (AUTO) ====
+    # =========================
+
+    echo "=== Detecting date range from SAFE files ==="
+
+    mapfile -t SAFE_FILES < <(find "$DATA_DIR" -maxdepth 1 -type d -name "*.SAFE" | sort)
+
+    if [[ "${#SAFE_FILES[@]}" -eq 0 ]]; then
+        echo "ERROR: No SAFE files found in $DATA_DIR"
+        exit 1
+    fi
+
+    DATES=()
+
+    for f in "${SAFE_FILES[@]}"; do
+        fname=$(basename "$f")
+
+        date=$(echo "$fname" | grep -oE '[0-9]{8}' | head -n1 || true)
+
+        if [[ -n "$date" ]]; then
+            DATES+=("$date")
+        else
+            echo "WARNING: could not extract date from $fname"
         fi
     done
 
-    if [[ $FOUND -eq 0 ]]; then
-        echo "❌ ERROR: No SAFE files found anywhere"
+    if [[ "${#DATES[@]}" -eq 0 ]]; then
+        echo "ERROR: No valid dates found in SAFE filenames"
         exit 1
     fi
-fi
 
-echo "Using DATA_DIR=$DATA_DIR"
-echo "SAFE count=${#SAFE_FILES[@]}"
+    IFS=$'\n' SORTED=($(sort <<<"${DATES[*]}"))
+    unset IFS
 
+    MIN_DATE="${SORTED[0]}"
+    MAX_DATE="${SORTED[-1]}"
 
-ORIG_DATA_NAME=$(basename "$DATA_DIR")
+    RANGE_TAG="${MIN_DATE}_${MAX_DATE}"
 
-# =========================
-# === RANGE TAG (AUTO) ====
-# =========================
+    echo "Detected date range: $MIN_DATE → $MAX_DATE"
+    echo "Using RANGE_TAG=$RANGE_TAG"
 
-echo "=== Detecting date range from SAFE files ==="
+else
+    echo "=== Skipping SAFE + RANGE detection (STAGE=$STAGE) ==="
 
-# collect SAFE files
-mapfile -t SAFE_FILES < <(find "$DATA_DIR" -maxdepth 1 -type d -name "*.SAFE" | sort)
+    # reuse from existing WORKDIR
+    EXISTING_DIR=$(find "$OUTPUT_DIR" -maxdepth 1 -type d -name "stack_*" | sort | head -n1)
 
-if [[ "${#SAFE_FILES[@]}" -eq 0 ]]; then
-    echo "ERROR: No SAFE files found in $DATA_DIR"
-    exit 1
-fi
-
-DATES=()
-
-for f in "${SAFE_FILES[@]}"; do
-    fname=$(basename "$f")
-
-    # extract first YYYYMMDD in filename
-    date=$(echo "$fname" | grep -oE '[0-9]{8}' | head -n1 || true)
-
-    if [[ -n "$date" ]]; then
-        DATES+=("$date")
-    else
-        echo "WARNING: could not extract date from $fname"
+    if [[ -z "$EXISTING_DIR" ]]; then
+        echo "❌ ERROR: No existing stack_* directory found in $OUTPUT_DIR"
+        exit 1
     fi
-done
 
-if [[ "${#DATES[@]}" -eq 0 ]]; then
-    echo "ERROR: No valid dates found in SAFE filenames"
-    exit 1
+    WORKDIR="$EXISTING_DIR"
+
+    echo "Reusing WORKDIR=$WORKDIR"
+
+    # extract components back
+    BASENAME=$(basename "$WORKDIR")
+
+    ORIG_DATA_NAME=$(echo "$BASENAME" | cut -d'_' -f2- | sed -E 's/_[0-9]{8}_[0-9]{8}_c.*//')
+    RANGE_TAG=$(echo "$BASENAME" | grep -oE '[0-9]{8}_[0-9]{8}')
+
+    echo "Recovered RANGE_TAG=$RANGE_TAG"
 fi
-
-# sort and get min/max
-IFS=$'\n' SORTED=($(sort <<<"${DATES[*]}"))
-unset IFS
-
-MIN_DATE="${SORTED[0]}"
-MAX_DATE="${SORTED[-1]}"
-
-RANGE_TAG="${MIN_DATE}_${MAX_DATE}"
-
-echo "Detected date range: $MIN_DATE → $MAX_DATE"
-echo "Using RANGE_TAG=$RANGE_TAG"
 
 
 # =========================
 # === WORKDIR ============
 # =========================
-WORKDIR="${OUTPUT_DIR}/stack_${ORIG_DATA_NAME}_${RANGE_TAG}_c${C}_z${Z}_r${R}_f${F}"
+if [[ "$STAGE" == "stage1" || "$STAGE" == "all" ]]; then
+    WORKDIR="${OUTPUT_DIR}/stack_${ORIG_DATA_NAME}_${RANGE_TAG}_c${C}_z${Z}_r${R}_f${F}"
+    echo "Computed WORKDIR=$WORKDIR"
+else
+    echo "Using existing WORKDIR=$WORKDIR"
+fi
 
 START_TOTAL=$(date +%s)
 
@@ -177,7 +208,9 @@ mkdir -p "$WORKDIR/logs"
 mkdir -p "$AUX_DIR"
 
 
-ls "$DATA_DIR"/* | sort > "$WORKDIR/input_scenes.txt"
+if [[ "$STAGE" == "stage1" || "$STAGE" == "all" ]]; then
+    ls "$DATA_DIR"/* | sort > "$WORKDIR/input_scenes.txt"
+fi
 
 
 # =========================

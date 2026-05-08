@@ -12,10 +12,24 @@ docker run --rm \
   -w /data \
   -e SLC_DIR="/data/ASF_SLC/Ascending_73" \
   -e ORB_DIR="/data/orbits" \
-  ghcr.io/lukas-scharf-plus/isce-stack:0.1.6 \
+  ghcr.io/lukas-scharf-plus/isce-stack:0.1.7 \
   bash -c "
     /scripts/fetch_orbits.sh &&
     /scripts/normalize_orbit_layout.sh /data/orbits /data/orbits_isce true
+  "
+
+docker run --rm \
+  -v $(pwd)/data:/data \
+  -w /data \
+  -e START_DATE=20200603 \
+  -e END_DATE=20200630 \
+  -e ORB_DIR="/data/orbits" \
+  -e CDSE_USERNAME='lukas.scharf@plus.ac.at' \
+  -e CDSE_PASSWORD='Mhwwvcmn58!1' \
+  ghcr.io/lukas-scharf-plus/isce-stack:0.1.7 \
+  bash -c "
+    /scripts/fetch_orbits.sh &&
+    /scripts/normalize_orbit_layout.sh /data/orbits /data/orbits_isce 
   "
 
 
@@ -62,13 +76,18 @@ docker run --rm \
 
 
 🧪 Minimal / lightweight test run
-docker run --rm   
--v ~/projects/ADUCAT/data:/data 
--e STAGE=stage1    
--e OUTPUT_DIR=/data/   
--e DATA_DIR=/data/ASF_SLC/Ascending_73   
--e ORB_DIR=/data/orbits_Sentinel-1  
--e DEM=/data/DEM/DEM_30m.wgs84.dem   
--e REF_DATE=20200616   
-isce-stack:0.1.5   
-/scripts/run_stackSentinel.sh
+docker run --rm \
+  -v ~/projects/ADUCAT/data:/data \
+  -e OUTPUT_DIR=/data/ \
+  -e DATA_DIR=/data/ASF_SLC/Ascending_73 \
+  -e ORB_DIR=/data/orbits_Sentinel-1 \
+  -e DEM=/data/DEM/DEM_30m.wgs84.dem \
+  -e AUX_DIR=/data/aux \
+  -e AOI="48.17229133 48.2238674 16.34362814 16.37115647" \
+  -e REF_DATE=20200616 \
+  -e C=2 \
+  -e Z=2 \
+  -e R=6 \
+  -e F=0.5 \
+  ghcr.io/lukas-scharf-plus/isce-stack:0.1.7 \
+  /scripts/run_stackSentinel.sh

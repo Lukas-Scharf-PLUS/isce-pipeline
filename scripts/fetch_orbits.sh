@@ -75,11 +75,17 @@ echo "Orbit range: $START_DATE → $END_DATE"
 # === DOWNLOAD ORBITS ================================
 # =====================================================
 
-dloadOrbits.py \
+/opt/isce2-src/contrib/stack/topsStack/dloadOrbits.py \
   --start "$START_DATE" \
   --end "$END_DATE" \
   --dir "$ORB_DIR" \
   --username "$CDSE_USERNAME" \
   --password "$CDSE_PASSWORD"
+
+echo "=== DEBUG: downloaded files ==="
+find "$ORB_DIR" -type f | head -100
+
+echo "=== DEBUG: search globally ==="
+find / -iname "*POEORB*" 2>/dev/null | head -100
 
 echo "=== Orbit download complete ==="

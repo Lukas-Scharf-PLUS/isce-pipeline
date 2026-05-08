@@ -24,8 +24,8 @@ docker run --rm \
   -e START_DATE=20200603 \
   -e END_DATE=20200630 \
   -e ORB_DIR="/data/orbits" \
-  -e CDSE_USERNAME='lukas.scharf@plus.ac.at' \
-  -e CDSE_PASSWORD='Mhwwvcmn58!1' \
+  -e CDSE_USERNAME='...' \
+  -e CDSE_PASSWORD='...' \
   ghcr.io/lukas-scharf-plus/isce-stack:0.1.7 \
   bash -c "
     /scripts/fetch_orbits.sh &&

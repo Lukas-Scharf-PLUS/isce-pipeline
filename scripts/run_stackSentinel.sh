@@ -18,7 +18,8 @@ echo "=== stackSentinel entrypoint ==="
 # =========================
 # === DEFAULTS ============
 # =========================
-: "${BBOX:=48.17 48.22 16.34 16.37}"
+: "${BBOX:=}"
+: "${SWATHS:=}"
 
 : "${STAGE:=all}"
 
@@ -82,7 +83,7 @@ if [[ "$STAGE" == "stage1" || "$STAGE" == "all" ]]; then
     echo "Found ${#SAFE_FILES[@]} SAFE files in $DATA_DIR"
 
     if [[ ${#SAFE_FILES[@]} -eq 0 ]]; then
-        echo "⚠️ No SAFE files found directly in DATA_DIR"
+        echo "No SAFE files found directly in DATA_DIR"
 
         echo "Trying one level deeper..."
 
@@ -101,7 +102,7 @@ if [[ "$STAGE" == "stage1" || "$STAGE" == "all" ]]; then
         done
 
         if [[ $FOUND -eq 0 ]]; then
-            echo "❌ ERROR: No SAFE files found anywhere"
+            echo "ERROR: No SAFE files found anywhere"
             exit 1
         fi
     fi
@@ -235,6 +236,7 @@ if [[ "$STAGE" == "stage1" || "$STAGE" == "all" ]]; then
 
         echo "---- AOI ----"
         echo "BBOX=$BBOX"
+        echo "SWATHS=$SWATHS"
         echo ""
 
         echo "---- TIME ----"
@@ -319,13 +321,26 @@ if [[ "$STAGE" == "stage1" || "$STAGE" == "all" ]]; then
 
     START_SS=$(date +%s)
 
+    BBOX_ARGS=()
+
+    if [[ -n "$BBOX" ]]; then
+        BBOX_ARGS=(-b "$BBOX")
+    fi
+
+    SWATH_ARGS=()
+
+    if [[ -n "$SWATHS" ]]; then
+        SWATH_ARGS=(--swath_num "$SWATHS")
+    fi
+
     stackSentinel.py \
       -s "$DATA_DIR" \
       -o "$ORB_DIR" \
       -a "$AUX_DIR" \
       -d "$DEM" \
       -w "$WORKDIR" \
-      -b "$BBOX" \
+      "${BBOX_ARGS[@]}" \
+      "${SWATH_ARGS[@]}" \
       -m "$REF_DATE" \
       -c "$C" \
       -z "$Z" \

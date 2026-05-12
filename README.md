@@ -6,31 +6,30 @@
 
 cd ~/projects/ADUCAT
 
-docker run --rm \
-  --env-file .env_cdse \
-  -v $(pwd)/data:/data \
-  -w /data \
-  -e SLC_DIR="/data/ASF_SLC/Ascending_73" \
-  -e ORB_DIR="/data/orbits" \
-  ghcr.io/lukas-scharf-plus/isce-stack:0.1.7 \
-  bash -c "
-    /scripts/fetch_orbits.sh &&
-    /scripts/normalize_orbit_layout.sh /data/orbits /data/orbits_isce true
-  "
+Option with a SLC directory:
 
-docker run --rm \
-  -v $(pwd)/data:/data \
-  -w /data \
-  -e START_DATE=20200603 \
-  -e END_DATE=20200630 \
-  -e ORB_DIR="/data/orbits" \
-  -e CDSE_USERNAME='...' \
-  -e CDSE_PASSWORD='...' \
-  ghcr.io/lukas-scharf-plus/isce-stack:0.1.7 \
-  bash -c "
-    /scripts/fetch_orbits.sh &&
-    /scripts/normalize_orbit_layout.sh /data/orbits /data/orbits_isce 
-  "
+docker run --rm
+--env-file .env_cdse
+-v $(pwd)/data:/data
+-w /data
+-e SLC_DIR="/data/ASF_SLC/Ascending_73"
+-e ORB_DIR="/data/orbits"
+ghcr.io/lukas-scharf-plus/isce-stack:0.1.8
+bash -c " /scripts/fetch_orbits.sh && /scripts/normalize_orbit_layout.sh /data/orbits /data/orbits_isce true "
+
+
+Option with START and END date and credentials as parameters:
+
+docker run --rm
+-v $(pwd)/data:/data
+-w /data
+-e START_DATE=20200603
+-e END_DATE=20200630
+-e ORB_DIR="/data/orbits"
+-e CDSE_USERNAME='...'
+-e CDSE_PASSWORD='...'
+ghcr.io/lukas-scharf-plus/isce-stack:0.1.8
+bash -c " /scripts/fetch_orbits.sh && /scripts/normalize_orbit_layout.sh /data/orbits /data/orbits_isce true"
 
 
 Explaination for arguments in normalize_orbit_layout.sh:
@@ -75,19 +74,22 @@ docker run --rm \
   /scripts/run_stackSentinel.sh
 
 
-🧪 Minimal / lightweight test run
+🧪 test run
 docker run --rm \
   -v ~/projects/ADUCAT/data:/data \
-  -e OUTPUT_DIR=/data/ \
-  -e DATA_DIR=/data/ASF_SLC/Ascending_73 \
+  -e STAGE=all \
+  -e OUTPUT_DIR=/data/ISCE_output \
+  -e DATA_DIR=/data/ASF_SLC/Descending_124 \
   -e ORB_DIR=/data/orbits_Sentinel-1 \
   -e DEM=/data/DEM/DEM_30m.wgs84.dem \
-  -e AUX_DIR=/data/aux \
-  -e AOI="48.17229133 48.2238674 16.34362814 16.37115647" \
-  -e REF_DATE=20200616 \
+  -e AUX_DIR=/data/ISCE_output/aux \
+  -e REF_DATE=20200614 \
+  -e BBOX="48.17229133 48.2238674 16.34362814 16.37115647" \  # step 7 or 8 could fail if there are not enough overlapping bursts.
   -e C=2 \
   -e Z=2 \
   -e R=6 \
   -e F=0.5 \
-  ghcr.io/lukas-scharf-plus/isce-stack:0.1.7 \
+  -e NUM_PROC=2 \
+  -e OMP_THREADS=3 \
+  ghcr.io/lukas-scharf-plus/isce-stack:0.1.8 \
   /scripts/run_stackSentinel.sh

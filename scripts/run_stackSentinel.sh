@@ -16,214 +16,94 @@ echo "=== stackSentinel entrypoint ==="
 : "${AUX_DIR:=${OUTPUT_DIR}/aux}"
 
 # =========================
-# === DEFAULTS ============
+# === OPTIONAL PARAMS =====
 # =========================
+
+# empty = no AOI cropping
 : "${BBOX:=}"
+
+# empty = use all swaths
 : "${SWATHS:=}"
 
-: "${STAGE:=all}"
+# empty = fresh run
+# set = resume mode
+: "${START_RUN:=}"
 
-if [[ "$STAGE" == "stage1" || "$STAGE" == "all" ]]; then
-    : "${REF_DATE:?REF_DATE is required}"
-fi
+# empty = run until end
+: "${END_RUN:=999}"
 
 : "${C:=2}"
 : "${Z:=2}"
 : "${R:=6}"
 : "${F:=0.5}"
 
-: "${NUM_PROC:=3}"
-: "${OMP_THREADS:=2}"
+: "${NUM_PROC:=}"
+: "${OMP_THREADS:=}"
 
 : "${DRY_RUN:=false}"
 
+# =========================
+# === MODE DETECTION ======
+# =========================
+
+if [[ -z "$START_RUN" ]]; then
+
+    RESUME_MODE=false
+    START_RUN=1
+
+    echo "================================="
+    echo "MODE: FRESH RUN"
+    echo "================================="
+
+else
+
+    RESUME_MODE=true
+
+    echo "================================="
+    echo "MODE: RESUME RUN"
+    echo "START_RUN=$START_RUN"
+    echo "END_RUN=$END_RUN"
+    echo "================================="
+
+fi
+
+# REF_DATE only required for fresh runs
+if [[ "$RESUME_MODE" == false ]]; then
+    : "${REF_DATE:?REF_DATE is required}"
+fi
 
 # =========================
 # === THREAD CONTROL ======
 # =========================
-export OMP_NUM_THREADS="$OMP_THREADS"
-export OPENBLAS_NUM_THREADS="$OMP_THREADS"
-export MKL_NUM_THREADS="$OMP_THREADS"
 
-
-# =========================
-# === DEBUG INPUT =========
-# =========================
-
-echo "========== DEBUG INPUT =========="
-echo "OUTPUT_DIR=$OUTPUT_DIR"
-echo "DATA_DIR=$DATA_DIR"
-echo "ORB_DIR=$ORB_DIR"
-echo "DEM=$DEM"
-echo "AUX_DIR=$AUX_DIR"
-echo "================================="
-
-if [ ! -d "$DATA_DIR" ]; then
-    echo "❌ ERROR: DATA_DIR does not exist!"
-    exit 1
-fi
-
-#echo "=== CONTENT OF DATA_DIR ==="
-#ls -al "$DATA_DIR" || true
-
-#echo "=== RECURSIVE STRUCTURE ==="
-#ls -R "$DATA_DIR" || true
-
-# =========================
-# === SAFE + RANGE LOGIC ==
-# =========================
-
-if [[ "$STAGE" == "stage1" || "$STAGE" == "all" ]]; then
-
-    # detect SAFE files robustly
-    shopt -s nullglob
-    SAFE_FILES=("$DATA_DIR"/*.SAFE)
-
-    echo "=== SAFE FILE DETECTION ==="
-    echo "Found ${#SAFE_FILES[@]} SAFE files in $DATA_DIR"
-
-    if [[ ${#SAFE_FILES[@]} -eq 0 ]]; then
-        echo "No SAFE files found directly in DATA_DIR"
-
-        echo "Trying one level deeper..."
-
-        SUBDIRS=("$DATA_DIR"/*/)
-        FOUND=0
-
-        for d in "${SUBDIRS[@]}"; do
-            inner=("$d"/*.SAFE)
-            if [[ ${#inner[@]} -gt 0 ]]; then
-                echo "✅ Found SAFE files in subdirectory: $d"
-                DATA_DIR="$d"
-                SAFE_FILES=("${inner[@]}")
-                FOUND=1
-                break
-            fi
-        done
-
-        if [[ $FOUND -eq 0 ]]; then
-            echo "ERROR: No SAFE files found anywhere"
-            exit 1
-        fi
-    fi
-
-    echo "Using DATA_DIR=$DATA_DIR"
-    echo "SAFE count=${#SAFE_FILES[@]}"
-
-    ORIG_DATA_NAME=$(basename "$DATA_DIR")
-
-    # =========================
-    # === RANGE TAG (AUTO) ====
-    # =========================
-
-    echo "=== Detecting date range from SAFE files ==="
-
-    mapfile -t SAFE_FILES < <(find "$DATA_DIR" -maxdepth 1 -type d -name "*.SAFE" | sort)
-
-    if [[ "${#SAFE_FILES[@]}" -eq 0 ]]; then
-        echo "ERROR: No SAFE files found in $DATA_DIR"
-        exit 1
-    fi
-
-    DATES=()
-
-    for f in "${SAFE_FILES[@]}"; do
-        fname=$(basename "$f")
-
-        date=$(echo "$fname" | grep -oE '[0-9]{8}' | head -n1 || true)
-
-        if [[ -n "$date" ]]; then
-            DATES+=("$date")
-        else
-            echo "WARNING: could not extract date from $fname"
-        fi
-    done
-
-    if [[ "${#DATES[@]}" -eq 0 ]]; then
-        echo "ERROR: No valid dates found in SAFE filenames"
-        exit 1
-    fi
-
-    IFS=$'\n' SORTED=($(sort <<<"${DATES[*]}"))
-    unset IFS
-
-    MIN_DATE="${SORTED[0]}"
-    MAX_DATE="${SORTED[-1]}"
-
-    RANGE_TAG="${MIN_DATE}_${MAX_DATE}"
-
-    echo "Detected date range: $MIN_DATE → $MAX_DATE"
-    echo "Using RANGE_TAG=$RANGE_TAG"
-
-else
-    echo "=== Skipping SAFE + RANGE detection (STAGE=$STAGE) ==="
-
-    # require WORKDIR explicitly
-    : "${WORKDIR:?WORKDIR must be provided for stage2/3}"
-
-    echo "Using provided WORKDIR=$WORKDIR"
-
-    BASENAME=$(basename "$WORKDIR")
-
-    ORIG_DATA_NAME=$(echo "$BASENAME" | cut -d'_' -f2- | sed -E 's/_[0-9]{8}_[0-9]{8}_c.*//')
-    RANGE_TAG=$(echo "$BASENAME" | grep -oE '[0-9]{8}_[0-9]{8}')
-
-    echo "Recovered RANGE_TAG=$RANGE_TAG"
-fi
-
-
-# =========================
-# === WORKDIR ============
-# =========================
-if [[ "$STAGE" == "stage1" || "$STAGE" == "all" ]]; then
-    WORKDIR="${OUTPUT_DIR}/stack_${ORIG_DATA_NAME}_${RANGE_TAG}_c${C}_z${Z}_r${R}_f${F}"
-    echo "Computed WORKDIR=$WORKDIR"
-else
-    echo "Using existing WORKDIR=$WORKDIR"
-fi
-
-START_TOTAL=$(date +%s)
-
-# safety check
-if [[ -z "$WORKDIR" || "$WORKDIR" == "/" || "$WORKDIR" == "$OUTPUT_DIR" ]]; then
-    echo "ERROR: WORKDIR is unsafe!"
-    exit 1
-fi
-
-# set/remove current working directory if it already exists
-if [[ "$STAGE" == "stage1" || "$STAGE" == "all" ]]; then
-    echo "Stage1: creating fresh WORKDIR"
-    rm -rf "$WORKDIR"
-    mkdir -p "$WORKDIR"
-else
-    echo "Reusing existing WORKDIR: $WORKDIR"
-fi
-
-# create the working directory where results are saved
-mkdir -p "$WORKDIR"
-mkdir -p "$WORKDIR/logs"
-mkdir -p "$AUX_DIR"
-
-
-if [[ "$STAGE" == "stage1" || "$STAGE" == "all" ]]; then
-    ls "$DATA_DIR"/* | sort > "$WORKDIR/input_scenes.txt"
-fi
-
+[[ -n "$OMP_THREADS" ]] && export OMP_NUM_THREADS="$OMP_THREADS"
+[[ -n "$OMP_THREADS" ]] && export OPENBLAS_NUM_THREADS="$OMP_THREADS"
+[[ -n "$OMP_THREADS" ]] && export MKL_NUM_THREADS="$OMP_THREADS"
 
 # =========================
 # === PARAMETER LOG =======
 # =========================
 
-if [[ "$STAGE" == "stage1" || "$STAGE" == "all" ]]; then
+write_parameter_log() {
 
     PARAM_LOG="$WORKDIR/parameters.log"
 
     echo "=== Writing parameter log to $PARAM_LOG ==="
 
     {
-        echo "===== STACK SENTINEL PARAMETERS ====="
+        echo ""
+        echo "=================================================="
+        echo "===== STACK SENTINEL PARAMETERS =================="
+        echo "=================================================="
+
         echo "RUN_ID=$(date +%Y%m%d_%H%M%S)"
         echo "DATE=$(date)"
+        echo ""
+
+        echo "---- EXECUTION MODE ----"
+        echo "RESUME_MODE=$RESUME_MODE"
+        echo "START_RUN=$START_RUN"
+        echo "END_RUN=$END_RUN"
         echo ""
 
         echo "---- PATHS ----"
@@ -241,14 +121,19 @@ if [[ "$STAGE" == "stage1" || "$STAGE" == "all" ]]; then
 
         echo "---- TIME ----"
         echo "REF_DATE=${REF_DATE:-<not set>}"
-        echo "START_DATE=${START_DATE:-<not set>}"
-        echo "END_DATE=${END_DATE:-<not set>}"
         echo "RANGE_TAG=$RANGE_TAG"
         echo ""
 
         echo "---- INPUT DATA ----"
-        echo "INPUT_SCENES_FILE=$WORKDIR/input_scenes.txt"
-        echo "NUM_SCENES=$(wc -l < "$WORKDIR/input_scenes.txt")"
+
+        if [[ -f "$WORKDIR/input_scenes.txt" ]]; then
+            echo "INPUT_SCENES_FILE=$WORKDIR/input_scenes.txt"
+            echo "NUM_SCENES=$(wc -l < "$WORKDIR/input_scenes.txt")"
+        else
+            echo "INPUT_SCENES_FILE=<missing>"
+            echo "NUM_SCENES=<unknown>"
+        fi
+
         echo ""
 
         echo "---- PROCESSING PARAMS ----"
@@ -260,8 +145,8 @@ if [[ "$STAGE" == "stage1" || "$STAGE" == "all" ]]; then
 
         echo "---- PARALLELIZATION ----"
         echo "NUM_PROC=$NUM_PROC"
-        echo "OMP_THREADS (user setting)=$OMP_THREADS"
-        echo "OMP_NUM_THREADS (effective)=$OMP_NUM_THREADS"
+        echo "OMP_THREADS=$OMP_THREADS"
+        echo "OMP_NUM_THREADS=$OMP_NUM_THREADS"
         echo "OPENBLAS_NUM_THREADS=$OPENBLAS_NUM_THREADS"
         echo "MKL_NUM_THREADS=$MKL_NUM_THREADS"
         echo ""
@@ -287,7 +172,7 @@ if [[ "$STAGE" == "stage1" || "$STAGE" == "all" ]]; then
         ulimit -a || true
         echo ""
 
-        echo "---- CGROUP MEMORY (container limits) ----"
+        echo "---- CGROUP MEMORY ----"
         cat /sys/fs/cgroup/memory.max 2>/dev/null || true
         cat /sys/fs/cgroup/memory.limit_in_bytes 2>/dev/null || true
         echo ""
@@ -296,148 +181,307 @@ if [[ "$STAGE" == "stage1" || "$STAGE" == "all" ]]; then
         df -h "$OUTPUT_DIR" || true
         echo ""
 
-        echo "---- ENV (filtered) ----"
-        env | grep -E '^(OMP|MKL|OPENBLAS|NUM_PROC|OUTPUT_DIR|DATA_DIR|WORKDIR)' || true
+        echo "---- ENV ----"
+        env | grep -E '^(OMP|MKL|OPENBLAS|NUM_PROC|OUTPUT_DIR|DATA_DIR|WORKDIR|START_RUN|END_RUN)' || true
         echo ""
 
-        echo "====================================="
-    } | tee "$PARAM_LOG"
+        echo "=================================================="
+        echo ""
+
+    } | tee -a "$PARAM_LOG"
+}
+
+# =========================
+# === DEBUG INPUT =========
+# =========================
+
+echo "========== DEBUG INPUT =========="
+echo "OUTPUT_DIR=$OUTPUT_DIR"
+echo "DATA_DIR=$DATA_DIR"
+echo "ORB_DIR=$ORB_DIR"
+echo "DEM=$DEM"
+echo "AUX_DIR=$AUX_DIR"
+echo "BBOX=$BBOX"
+echo "SWATHS=$SWATHS"
+echo "START_RUN=$START_RUN"
+echo "END_RUN=$END_RUN"
+echo "================================="
+
+if [[ ! -d "$DATA_DIR" ]]; then
+    echo "ERROR: DATA_DIR does not exist"
+    exit 1
 fi
 
+# =========================
+# === SAFE DETECTION ======
+# =========================
+
+shopt -s nullglob
+
+SAFE_FILES=("$DATA_DIR"/*.SAFE)
+
+if [[ ${#SAFE_FILES[@]} -eq 0 ]]; then
+
+    echo "No SAFE files found directly in DATA_DIR"
+    echo "Trying one level deeper..."
+
+    SUBDIRS=("$DATA_DIR"/*/)
+
+    for d in "${SUBDIRS[@]}"; do
+
+        inner=("$d"/*.SAFE)
+
+        if [[ ${#inner[@]} -gt 0 ]]; then
+            DATA_DIR="$d"
+            SAFE_FILES=("${inner[@]}")
+            break
+        fi
+    done
+fi
+
+if [[ ${#SAFE_FILES[@]} -eq 0 ]]; then
+    echo "ERROR: no SAFE files found"
+    exit 1
+fi
+
+echo "SAFE count=${#SAFE_FILES[@]}"
+echo "Using DATA_DIR=$DATA_DIR"
+
+ORIG_DATA_NAME=$(basename "$DATA_DIR")
+
+# =========================
+# === DATE RANGE ==========
+# =========================
+
+DATES=()
+
+for f in "${SAFE_FILES[@]}"; do
+
+    fname=$(basename "$f")
+
+    date=$(echo "$fname" | grep -oE '[0-9]{8}' | head -n1 || true)
+
+    if [[ -n "$date" ]]; then
+        DATES+=("$date")
+    fi
+done
+
+IFS=$'\n' SORTED=($(sort <<<"${DATES[*]}"))
+unset IFS
+
+MIN_DATE="${SORTED[0]}"
+MAX_DATE="${SORTED[-1]}"
+
+RANGE_TAG="${MIN_DATE}_${MAX_DATE}"
+
+echo "Detected date range:"
+echo "$MIN_DATE -> $MAX_DATE"
+
+# =========================
+# === WORKDIR ============
+# =========================
+
+if [[ "$RESUME_MODE" == false ]]; then
+
+    WORKDIR="${OUTPUT_DIR}/stack_${ORIG_DATA_NAME}_${RANGE_TAG}_c${C}_z${Z}_r${R}_f${F}"
+
+else
+
+    : "${WORKDIR:?WORKDIR is required in resume mode}"
+
+fi
+
+echo "WORKDIR=$WORKDIR"
+
+# =========================
+# === FRESH VS RESUME =====
+# =========================
+
+if [[ "$RESUME_MODE" == false ]]; then
+
+    echo "================================="
+    echo "Fresh run:"
+    echo "Recreating WORKDIR"
+    echo "================================="
+
+    rm -rf "$WORKDIR"
+
+    mkdir -p "$WORKDIR"
+    mkdir -p "$WORKDIR/logs"
+    mkdir -p "$AUX_DIR"
+
+    ls "$DATA_DIR"/* | sort > "$WORKDIR/input_scenes.txt"
+
+else
+
+    echo "================================="
+    echo "Resume mode:"
+    echo "Keeping existing WORKDIR"
+    echo "================================="
+
+    if [[ ! -d "$WORKDIR" ]]; then
+        echo "ERROR: WORKDIR does not exist"
+        exit 1
+    fi
+
+    mkdir -p "$WORKDIR/logs"
+
+fi
+
+write_parameter_log
+
+# =========================
+# === DRY RUN ============
+# =========================
 
 if [[ "$DRY_RUN" == "true" ]]; then
-    echo "DRY_RUN enabled → exiting before processing"
+    echo "DRY_RUN enabled"
     exit 0
 fi
+
+START_TOTAL=$(date +%s)
 
 # =====================================================
 # === RUN stackSentinel.py =============================
 # =====================================================
 
-echo "=== Running stackSentinel.py ==="
+if [[ "$RESUME_MODE" == false ]]; then
 
-if [[ "$STAGE" == "stage1" || "$STAGE" == "all" ]]; then
-    echo "=== Running stackSentinel.py (stage1 only) ==="
+    echo "================================="
+    echo "Running stackSentinel.py"
+    echo "================================="
 
-    START_SS=$(date +%s)
-
+    # bbox
     BBOX_ARGS=()
 
     if [[ -n "$BBOX" ]]; then
         BBOX_ARGS=(-b "$BBOX")
     fi
 
+    # swath
     SWATH_ARGS=()
 
     if [[ -n "$SWATHS" ]]; then
         SWATH_ARGS=(--swath_num "$SWATHS")
     fi
 
+    # num_proc
+    NUMPROC_ARGS=()
+
+    if [[ -n "$NUM_PROC" ]]; then
+        NUMPROC_ARGS=(--num_proc "$NUM_PROC")
+    fi
+
+    START_SS=$(date +%s)
+
     stackSentinel.py \
-      -s "$DATA_DIR" \
-      -o "$ORB_DIR" \
-      -a "$AUX_DIR" \
-      -d "$DEM" \
-      -w "$WORKDIR" \
-      "${BBOX_ARGS[@]}" \
-      "${SWATH_ARGS[@]}" \
-      -m "$REF_DATE" \
-      -c "$C" \
-      -z "$Z" \
-      -r "$R" \
-      -f "$F" \
-      --num_proc "$NUM_PROC" \
-      2>&1 | tee "$WORKDIR/logs/stackSentinel.log"
+        -s "$DATA_DIR" \
+        -o "$ORB_DIR" \
+        -a "$AUX_DIR" \
+        -d "$DEM" \
+        -w "$WORKDIR" \
+        "${BBOX_ARGS[@]}" \
+        "${SWATH_ARGS[@]}" \
+        -m "$REF_DATE" \
+        -c "$C" \
+        -z "$Z" \
+        -r "$R" \
+        -f "$F" \
+        "${NUMPROC_ARGS[@]}" \
+        2>&1 | tee "$WORKDIR/logs/stackSentinel.log"
 
     END_SS=$(date +%s)
+
     SS_TIME=$((END_SS - START_SS))
 
     printf "stackSentinel.py took %02d:%02d (mm:ss)\n" \
-        $((SS_TIME/60)) $((SS_TIME%60)) \
+        $((SS_TIME/60)) \
+        $((SS_TIME%60)) \
         | tee -a "$WORKDIR/timing.log"
 
 else
-    echo "=== Skipping stackSentinel.py (STAGE=$STAGE) ==="
+
+    echo "================================="
+    echo "Resume mode:"
+    echo "Skipping stackSentinel.py"
+    echo "================================="
+
 fi
 
 # =====================================================
-# === RUN ALL STEPS ====================================
+# === RUNFILES ========================================
 # =====================================================
 
-echo "=== Running ISCE steps ==="
+RUN_DIR="$WORKDIR/run_files"
 
-if [ ! -d "$WORKDIR/run_files" ]; then
-    echo "ERROR: run_files directory missing!"
+if [[ ! -d "$RUN_DIR" ]]; then
+    echo "ERROR: run_files directory missing"
     exit 1
 fi
 
-cd "$WORKDIR/run_files"
+cd "$RUN_DIR"
 
-# Link DEM once
-echo "Linking DEM into $(pwd)"
+# link DEM once
 ln -sf "$DEM" .
-[ -f "${DEM}.vrt" ] && ln -sf "${DEM}.vrt" .
-[ -f "${DEM}.xml" ] && ln -sf "${DEM}.xml" .
+[[ -f "${DEM}.vrt" ]] && ln -sf "${DEM}.vrt" .
+[[ -f "${DEM}.xml" ]] && ln -sf "${DEM}.xml" .
+
+# =====================================================
+# === EXECUTE RUNFILES ================================
+# =====================================================
 
 for runfile in run_*; do
-    [ -f "$runfile" ] || continue
 
-    # =========================
-    # === EXTRACT RUN NUMBER ==
-    # =========================
+    [[ -f "$runfile" ]] || continue
+
     run_id=$(echo "$runfile" | sed -E 's/run_([0-9]+).*/\1/')
     run_id=$((10#$run_id))
 
-    # optional debug
-    echo "STAGE=$STAGE → running run_id=$run_id"
+    (( run_id < START_RUN )) && continue
+    (( run_id > END_RUN )) && continue
 
-    # =========================
-    # === STAGE FILTER ========
-    # =========================
-    case "${STAGE:-all}" in
-    stage1)
-        (( run_id < 16 )) || continue
-        ;;
-    stage2)
-        (( run_id == 16 )) || continue
-        ;;
-    all)
-        ;;
-    *)
-        echo "ERROR: unknown STAGE=$STAGE"
-        exit 1
-        ;;
-    esac
-
-    # =========================
-    # === ORIGINAL LOGIC ======
-    # =========================
-    echo ">>> Running $runfile"
+    echo ""
+    echo "================================="
+    echo "RUNNING: $runfile"
+    echo "RUN_ID:  $run_id"
+    echo "================================="
 
     START_STEP=$(date +%s)
 
     OMP_NUM_THREADS="$OMP_THREADS" \
     OPENBLAS_NUM_THREADS="$OMP_THREADS" \
     MKL_NUM_THREADS="$OMP_THREADS" \
-    bash "$runfile" 2>&1 | tee "$WORKDIR/logs/${runfile}.log"
+    bash "$runfile" \
+        2>&1 | tee "$WORKDIR/logs/${runfile}.log"
 
     END_STEP=$(date +%s)
+
     DURATION=$((END_STEP - START_STEP))
 
-    printf ">>> %s took %02d:%02d (mm:ss)\n" "$runfile" $((DURATION/60)) $((DURATION%60)) \
+    printf "%s took %02d:%02d (mm:ss)\n" \
+        "$runfile" \
+        $((DURATION/60)) \
+        $((DURATION%60)) \
         | tee -a "$WORKDIR/timing.log"
 
 done
 
 # =====================================================
-# === TOTAL TIME =======================================
+# === TOTAL TIME ======================================
 # =====================================================
 
 END_TOTAL=$(date +%s)
+
 TOTAL_TIME=$((END_TOTAL - START_TOTAL))
 
-echo "=== TOTAL PROCESSING TIME ===" | tee -a "$WORKDIR/timing.log"
-printf "TOTAL: %02d:%02d (mm:ss)\n" $((TOTAL_TIME/60)) $((TOTAL_TIME%60)) \
+echo ""
+echo "================================="
+echo "TOTAL PROCESSING TIME"
+echo "================================="
+
+printf "TOTAL: %02d:%02d (mm:ss)\n" \
+    $((TOTAL_TIME/60)) \
+    $((TOTAL_TIME%60)) \
     | tee -a "$WORKDIR/timing.log"
 
 echo "=== DONE ==="

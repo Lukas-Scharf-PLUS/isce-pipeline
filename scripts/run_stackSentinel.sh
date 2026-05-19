@@ -8,9 +8,6 @@ echo "=== stackSentinel entrypoint ==="
 # =========================
 
 : "${OUTPUT_DIR:?OUTPUT_DIR is required}"
-: "${DATA_DIR:?DATA_DIR is required}"
-: "${ORB_DIR:?ORB_DIR is required}"
-: "${DEM:?DEM is required}"
 
 # optional but usually needed
 : "${AUX_DIR:=${OUTPUT_DIR}/aux}"
@@ -67,9 +64,21 @@ else
 
 fi
 
-# REF_DATE only required for fresh runs
+# =====================================================
+# === REQUIRED PARAMS DEPENDING ON MODE ===============
+# =====================================================
+
 if [[ "$RESUME_MODE" == false ]]; then
+
+    : "${DATA_DIR:?DATA_DIR is required}"
+    : "${ORB_DIR:?ORB_DIR is required}"
+    : "${DEM:?DEM is required}"
     : "${REF_DATE:?REF_DATE is required}"
+
+else
+
+    : "${WORKDIR:?WORKDIR is required in resume mode}"
+
 fi
 
 # =========================
@@ -108,9 +117,9 @@ write_parameter_log() {
 
         echo "---- PATHS ----"
         echo "OUTPUT_DIR=$OUTPUT_DIR"
-        echo "DATA_DIR=$DATA_DIR"
-        echo "ORB_DIR=$ORB_DIR"
-        echo "DEM=$DEM"
+        echo "DATA_DIR=${DATA_DIR:-<not set>}"
+        echo "ORB_DIR=${ORB_DIR:-<not set>}"
+        echo "DEM=${DEM:-<not set>}"
         echo "AUX_DIR=$AUX_DIR"
         echo ""
 
@@ -121,7 +130,7 @@ write_parameter_log() {
 
         echo "---- TIME ----"
         echo "REF_DATE=${REF_DATE:-<not set>}"
-        echo "RANGE_TAG=$RANGE_TAG"
+        echo "RANGE_TAG=${RANGE_TAG:-<not set>}"
         echo ""
 
         echo "---- INPUT DATA ----"
@@ -146,14 +155,14 @@ write_parameter_log() {
         echo "---- PARALLELIZATION ----"
         echo "NUM_PROC=$NUM_PROC"
         echo "OMP_THREADS=$OMP_THREADS"
-        echo "OMP_NUM_THREADS=$OMP_NUM_THREADS"
-        echo "OPENBLAS_NUM_THREADS=$OPENBLAS_NUM_THREADS"
-        echo "MKL_NUM_THREADS=$MKL_NUM_THREADS"
+        echo "OMP_NUM_THREADS=${OMP_NUM_THREADS:-<unset>}"
+        echo "OPENBLAS_NUM_THREADS=${OPENBLAS_NUM_THREADS:-<unset>}"
+        echo "MKL_NUM_THREADS=${MKL_NUM_THREADS:-<unset>}"
         echo ""
 
         echo "---- DERIVED ----"
         echo "WORKDIR=$WORKDIR"
-        echo "ORIG_DATA_NAME=$ORIG_DATA_NAME"
+        echo "ORIG_DATA_NAME=${ORIG_DATA_NAME:-<not set>}"
         echo ""
 
         echo "---- SYSTEM ----"
@@ -197,9 +206,9 @@ write_parameter_log() {
 
 echo "========== DEBUG INPUT =========="
 echo "OUTPUT_DIR=$OUTPUT_DIR"
-echo "DATA_DIR=$DATA_DIR"
-echo "ORB_DIR=$ORB_DIR"
-echo "DEM=$DEM"
+echo "DATA_DIR=${DATA_DIR:-<not set>}"
+echo "ORB_DIR=${ORB_DIR:-<not set>}"
+echo "DEM=${DEM:-<not set>}"
 echo "AUX_DIR=$AUX_DIR"
 echo "BBOX=$BBOX"
 echo "SWATHS=$SWATHS"
@@ -207,75 +216,83 @@ echo "START_RUN=$START_RUN"
 echo "END_RUN=$END_RUN"
 echo "================================="
 
-if [[ ! -d "$DATA_DIR" ]]; then
-    echo "ERROR: DATA_DIR does not exist"
-    exit 1
-fi
+# =====================================================
+# === FRESH RUN: SAFE DETECTION + DATE EXTRACTION =====
+# =====================================================
 
-# =========================
-# === SAFE DETECTION ======
-# =========================
+if [[ "$RESUME_MODE" == false ]]; then
 
-shopt -s nullglob
+    if [[ ! -d "$DATA_DIR" ]]; then
+        echo "ERROR: DATA_DIR does not exist"
+        exit 1
+    fi
 
-SAFE_FILES=("$DATA_DIR"/*.SAFE)
+    shopt -s nullglob
 
-if [[ ${#SAFE_FILES[@]} -eq 0 ]]; then
+    SAFE_FILES=("$DATA_DIR"/*.SAFE)
 
-    echo "No SAFE files found directly in DATA_DIR"
-    echo "Trying one level deeper..."
+    if [[ ${#SAFE_FILES[@]} -eq 0 ]]; then
 
-    SUBDIRS=("$DATA_DIR"/*/)
+        echo "No SAFE files found directly in DATA_DIR"
+        echo "Trying one level deeper..."
 
-    for d in "${SUBDIRS[@]}"; do
+        SUBDIRS=("$DATA_DIR"/*/)
 
-        inner=("$d"/*.SAFE)
+        for d in "${SUBDIRS[@]}"; do
 
-        if [[ ${#inner[@]} -gt 0 ]]; then
-            DATA_DIR="$d"
-            SAFE_FILES=("${inner[@]}")
-            break
+            inner=("$d"/*.SAFE)
+
+            if [[ ${#inner[@]} -gt 0 ]]; then
+                DATA_DIR="$d"
+                SAFE_FILES=("${inner[@]}")
+                break
+            fi
+        done
+    fi
+
+    if [[ ${#SAFE_FILES[@]} -eq 0 ]]; then
+        echo "ERROR: no SAFE files found"
+        exit 1
+    fi
+
+    echo "SAFE count=${#SAFE_FILES[@]}"
+    echo "Using DATA_DIR=$DATA_DIR"
+
+    ORIG_DATA_NAME=$(basename "$DATA_DIR")
+
+    DATES=()
+
+    for f in "${SAFE_FILES[@]}"; do
+
+        fname=$(basename "$f")
+
+        date=$(echo "$fname" | grep -oE '[0-9]{8}' | head -n1 || true)
+
+        if [[ -n "$date" ]]; then
+            DATES+=("$date")
         fi
     done
+
+    IFS=$'\n' SORTED=($(sort <<<"${DATES[*]}"))
+    unset IFS
+
+    MIN_DATE="${SORTED[0]}"
+    MAX_DATE="${SORTED[-1]}"
+
+    RANGE_TAG="${MIN_DATE}_${MAX_DATE}"
+
+    echo "Detected date range:"
+    echo "$MIN_DATE -> $MAX_DATE"
+
+else
+
+    echo "================================="
+    echo "Resume mode:"
+    echo "Skipping SAFE detection"
+    echo "Skipping date extraction"
+    echo "================================="
+
 fi
-
-if [[ ${#SAFE_FILES[@]} -eq 0 ]]; then
-    echo "ERROR: no SAFE files found"
-    exit 1
-fi
-
-echo "SAFE count=${#SAFE_FILES[@]}"
-echo "Using DATA_DIR=$DATA_DIR"
-
-ORIG_DATA_NAME=$(basename "$DATA_DIR")
-
-# =========================
-# === DATE RANGE ==========
-# =========================
-
-DATES=()
-
-for f in "${SAFE_FILES[@]}"; do
-
-    fname=$(basename "$f")
-
-    date=$(echo "$fname" | grep -oE '[0-9]{8}' | head -n1 || true)
-
-    if [[ -n "$date" ]]; then
-        DATES+=("$date")
-    fi
-done
-
-IFS=$'\n' SORTED=($(sort <<<"${DATES[*]}"))
-unset IFS
-
-MIN_DATE="${SORTED[0]}"
-MAX_DATE="${SORTED[-1]}"
-
-RANGE_TAG="${MIN_DATE}_${MAX_DATE}"
-
-echo "Detected date range:"
-echo "$MIN_DATE -> $MAX_DATE"
 
 # =========================
 # === WORKDIR ============
@@ -287,7 +304,11 @@ if [[ "$RESUME_MODE" == false ]]; then
 
 else
 
-    : "${WORKDIR:?WORKDIR is required in resume mode}"
+    BASENAME=$(basename "$WORKDIR")
+
+    ORIG_DATA_NAME=$(echo "$BASENAME" | sed -E 's/^stack_//' | sed -E 's/_[0-9]{8}_[0-9]{8}_c.*//')
+
+    RANGE_TAG=$(echo "$BASENAME" | grep -oE '[0-9]{8}_[0-9]{8}')
 
 fi
 
@@ -351,21 +372,18 @@ if [[ "$RESUME_MODE" == false ]]; then
     echo "Running stackSentinel.py"
     echo "================================="
 
-    # bbox
     BBOX_ARGS=()
 
     if [[ -n "$BBOX" ]]; then
         BBOX_ARGS=(-b "$BBOX")
     fi
 
-    # swath
     SWATH_ARGS=()
 
     if [[ -n "$SWATHS" ]]; then
         SWATH_ARGS=(--swath_num "$SWATHS")
     fi
 
-    # num_proc
     NUMPROC_ARGS=()
 
     if [[ -n "$NUM_PROC" ]]; then
@@ -421,10 +439,15 @@ fi
 
 cd "$RUN_DIR"
 
-# link DEM once
-ln -sf "$DEM" .
-[[ -f "${DEM}.vrt" ]] && ln -sf "${DEM}.vrt" .
-[[ -f "${DEM}.xml" ]] && ln -sf "${DEM}.xml" .
+# DEM links only if DEM exists
+if [[ -n "${DEM:-}" && -f "${DEM:-}" ]]; then
+
+    ln -sf "$DEM" .
+
+    [[ -f "${DEM}.vrt" ]] && ln -sf "${DEM}.vrt" .
+    [[ -f "${DEM}.xml" ]] && ln -sf "${DEM}.xml" .
+
+fi
 
 # =====================================================
 # === EXECUTE RUNFILES ================================
@@ -448,9 +471,6 @@ for runfile in run_*; do
 
     START_STEP=$(date +%s)
 
-    OMP_NUM_THREADS="$OMP_THREADS" \
-    OPENBLAS_NUM_THREADS="$OMP_THREADS" \
-    MKL_NUM_THREADS="$OMP_THREADS" \
     bash "$runfile" \
         2>&1 | tee "$WORKDIR/logs/${runfile}.log"
 

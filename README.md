@@ -77,19 +77,32 @@ docker run --rm \
 🧪 test run
 docker run --rm \
   -v ~/projects/ADUCAT/data:/data \
-  -e STAGE=all \
   -e OUTPUT_DIR=/data/ISCE_output \
   -e DATA_DIR=/data/ASF_SLC/Descending_124 \
   -e ORB_DIR=/data/orbits_Sentinel-1 \
   -e DEM=/data/DEM/DEM_30m.wgs84.dem \
   -e AUX_DIR=/data/ISCE_output/aux \
   -e REF_DATE=20200614 \
-  -e BBOX="48.17229133 48.2238674 16.34362814 16.37115647" \  # step 7 or 8 could fail if there are not enough overlapping bursts.
+  -e BBOX="48.12 48.33 16.18 16.58" \
   -e C=2 \
   -e Z=2 \
   -e R=6 \
   -e F=0.5 \
-  -e NUM_PROC=2 \
+  -e NUM_PROC=1 \
   -e OMP_THREADS=3 \
-  ghcr.io/lukas-scharf-plus/isce-stack:0.1.8 \
+  ghcr.io/lukas-scharf-plus/isce-stack:0.1.10 \
   /scripts/run_stackSentinel.sh
+
+
+
+## References
+
+This workflow uses the following open-source software:
+
+- ISCE2
+
+Rosen, P. A., Gurrola, E., Sacco, G. F., & Zebker, H. (2012, April). The InSAR scientific computing environment. In EUSAR 2012; 9th European conference on synthetic aperture radar (pp. 730-733). VDE.
+
+ISCE repository:
+
+https://github.com/isce-framework/isce2/tree/main

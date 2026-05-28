@@ -75,10 +75,6 @@ if [[ "$RESUME_MODE" == false ]]; then
     : "${DEM:?DEM is required}"
     : "${REF_DATE:?REF_DATE is required}"
 
-else
-
-    : "${WORKDIR:?WORKDIR is required in resume mode}"
-
 fi
 
 # =========================
@@ -304,11 +300,16 @@ if [[ "$RESUME_MODE" == false ]]; then
 
 else
 
-    BASENAME=$(basename "$WORKDIR")
+    WORKDIR=$(find "$OUTPUT_DIR" \
+        -maxdepth 1 \
+        -type d \
+        -name "stack_*" \
+        | head -n1)
 
-    ORIG_DATA_NAME=$(echo "$BASENAME" | sed -E 's/^stack_//' | sed -E 's/_[0-9]{8}_[0-9]{8}_c.*//')
-
-    RANGE_TAG=$(echo "$BASENAME" | grep -oE '[0-9]{8}_[0-9]{8}')
+    if [[ -z "$WORKDIR" ]]; then
+        echo "ERROR: no stack directory found in $OUTPUT_DIR"
+        exit 1
+    fi
 
 fi
 

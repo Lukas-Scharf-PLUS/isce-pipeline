@@ -19,7 +19,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-gdal \
  && rm -rf /var/lib/apt/lists/*
 
-RUN python3 -m pip install --no-cache-dir sardem boto3 s3fs
+COPY requirements.txt /tmp/requirements.txt
+
+RUN python3 -m pip install --no-cache-dir \
+    -r /tmp/requirements.txt
 
 RUN git clone --depth=1 https://github.com/isce-framework/isce2.git /opt/isce2-src
 
@@ -29,10 +32,10 @@ RUN chmod +x /entrypoint.sh
 # copy scripts into container
 COPY scripts /scripts
 # make them executable
-RUN chmod +x /scripts/*.sh
+RUN find /scripts -type f \( -name "*.sh" -o -name "*.py" \) -exec chmod +x {} \;
 
 
-ENV PATH="/usr/local/bin:${PATH}"
+ENV PATH="/opt/isce2-src/contrib/timeseries/prepStackToStaMPS/bin:/usr/local/bin:${PATH}"
 
 RUN ln -sf /usr/lib/python3.8/dist-packages/isce2/applications/looks.py /usr/local/bin/looks.py
 

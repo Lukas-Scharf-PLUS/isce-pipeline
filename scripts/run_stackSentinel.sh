@@ -16,6 +16,9 @@ echo "=== stackSentinel entrypoint ==="
 # === OPTIONAL PARAMS =====
 # =========================
 
+# reference data
+: "${REF_DATE:=}"
+
 # empty = no AOI cropping
 : "${BBOX:=}"
 
@@ -29,14 +32,41 @@ echo "=== stackSentinel entrypoint ==="
 # empty = run until end
 : "${END_RUN:=999}"
 
+# coregistration
+: "${COREGISTRATION:=}"
+
+# snr misreg threshold
+: "${SNR_MISREG_THRESHOLD:=}"
+
+# esd coherence threshold
+: "${ESD_COHERENCE_THRESHOLD:=}"
+
+# number overlapping connections
+: "${NUM_OVERLAP_CONNECTIONS:=}"
+
+# interferogram formation
+# number of connections
 : "${C:=2}"
+
+# multilooking azimuth
 : "${Z:=2}"
+
+# multilooking range
 : "${R:=6}"
+
+# goldstein filtering
 : "${F:=0.5}"
 
+# processing
 : "${NUM_PROC:=}"
+: "${NUM_PROC4TOPO:=}"
 : "${OMP_THREADS:=}"
 
+
+# virtual merge
+: "${VIRTUAL_MERGE:=True}"
+
+# for dry run
 : "${DRY_RUN:=false}"
 
 # =========================
@@ -73,7 +103,6 @@ if [[ "$RESUME_MODE" == false ]]; then
     : "${DATA_DIR:?DATA_DIR is required}"
     : "${ORB_DIR:?ORB_DIR is required}"
     : "${DEM:?DEM is required}"
-    : "${REF_DATE:?REF_DATE is required}"
 
 fi
 
@@ -142,15 +171,27 @@ write_parameter_log() {
         echo ""
 
         echo "---- PROCESSING PARAMS ----"
+
+        echo "REF_DATE=$REF_DATE"
+
+        echo "COREGISTRATION=${COREGISTRATION:-<default>}"
+        echo "SNR_MISREG_THRESHOLD=${SNR_MISREG_THRESHOLD:-<default>}"
+        echo "ESD_COHERENCE_THRESHOLD=${ESD_COHERENCE_THRESHOLD:-<default>}"
+        echo "NUM_OVERLAP_CONNECTIONS=${NUM_OVERLAP_CONNECTIONS:-<default>}"
+
         echo "C=$C"
         echo "Z=$Z"
         echo "R=$R"
         echo "F=$F"
+
+        echo "VIRTUAL_MERGE=$VIRTUAL_MERGE"
+
         echo ""
 
         echo "---- PARALLELIZATION ----"
-        echo "NUM_PROC=$NUM_PROC"
-        echo "OMP_THREADS=$OMP_THREADS"
+        echo "NUM_PROC=${NUM_PROC:-<default>}"
+        echo "NUM_PROC4TOPO=${NUM_PROC4TOPO:-<default>}"
+        echo "OMP_THREADS=${OMP_THREADS:-<default>}"
         echo "OMP_NUM_THREADS=${OMP_NUM_THREADS:-<unset>}"
         echo "OPENBLAS_NUM_THREADS=${OPENBLAS_NUM_THREADS:-<unset>}"
         echo "MKL_NUM_THREADS=${MKL_NUM_THREADS:-<unset>}"
@@ -161,33 +202,27 @@ write_parameter_log() {
         echo "ORIG_DATA_NAME=${ORIG_DATA_NAME:-<not set>}"
         echo ""
 
+        echo "---- CONTAINER RESOURCES ----"
+        echo "NPROC=$(nproc)"
+        grep MemTotal /proc/meminfo || true
+        echo ""
+
+        echo "---- SOFTWARE ----"
+        echo "stackSentinel.py=$(which stackSentinel.py)"
+        snaphu -v 2>/dev/null | head -n1 || true
+        gdalinfo --version 2>/dev/null || true
+        echo ""
+
         echo "---- SYSTEM ----"
         echo "HOSTNAME=$(hostname)"
-        echo "USER=$(whoami)"
-        echo "PWD=$(pwd)"
-        echo "NPROC=$(nproc)"
-        echo "KERNEL=$(uname -r)"
         echo ""
 
         echo "---- MEMORY ----"
         free -h || true
         echo ""
 
-        echo "---- ULIMIT ----"
-        ulimit -a || true
-        echo ""
-
-        echo "---- CGROUP MEMORY ----"
-        cat /sys/fs/cgroup/memory.max 2>/dev/null || true
-        cat /sys/fs/cgroup/memory.limit_in_bytes 2>/dev/null || true
-        echo ""
-
         echo "---- DISK ----"
         df -h "$OUTPUT_DIR" || true
-        echo ""
-
-        echo "---- ENV ----"
-        env | grep -E '^(OMP|MKL|OPENBLAS|NUM_PROC|OUTPUT_DIR|DATA_DIR|WORKDIR|START_RUN|END_RUN)' || true
         echo ""
 
         echo "=================================================="
@@ -217,7 +252,7 @@ echo "================================="
 # =====================================================
 
 if [[ "$RESUME_MODE" == false ]]; then
-
+    
     if [[ ! -d "$DATA_DIR" ]]; then
         echo "ERROR: DATA_DIR does not exist"
         exit 1
@@ -332,7 +367,7 @@ if [[ "$RESUME_MODE" == false ]]; then
     mkdir -p "$WORKDIR/logs"
     mkdir -p "$AUX_DIR"
 
-    ls "$DATA_DIR"/* | sort > "$WORKDIR/input_scenes.txt"
+    printf "%s\n" "${SAFE_FILES[@]}" | sort > "$WORKDIR/input_scenes.txt"
 
 else
 
@@ -350,7 +385,9 @@ else
 
 fi
 
-write_parameter_log
+if [[ "$RESUME_MODE" == false ]]; then
+    write_parameter_log
+fi
 
 # =========================
 # === DRY RUN ============
@@ -373,23 +410,72 @@ if [[ "$RESUME_MODE" == false ]]; then
     echo "Running stackSentinel.py"
     echo "================================="
 
+    # reference date
+    REFDATE_ARGS=()
+
+    if [[ -n "$REF_DATE" ]]; then
+        REFDATE_ARGS=(-m "$REF_DATE")
+    fi
+
+    # coregistration method
+    COREG_ARGS=()
+
+    if [[ -n "$COREGISTRATION" ]]; then
+        COREG_ARGS=(-C "$COREGISTRATION")
+    fi
+
+    # SNR threshold
+    SNR_ARGS=()
+
+    if [[ -n "$SNR_MISREG_THRESHOLD" ]]; then
+        SNR_ARGS=(--snr_misreg_threshold "$SNR_MISREG_THRESHOLD")
+    fi
+
+    # ESD coherence threshold
+    ESD_ARGS=()
+
+    if [[ -n "$ESD_COHERENCE_THRESHOLD" ]]; then
+        ESD_ARGS=(-e "$ESD_COHERENCE_THRESHOLD")
+    fi
+
+    # overlap connections
+    OVERLAP_ARGS=()
+
+    if [[ -n "$NUM_OVERLAP_CONNECTIONS" ]]; then
+        OVERLAP_ARGS=(-O "$NUM_OVERLAP_CONNECTIONS")
+    fi
+
+
+    # setting a bounding box
     BBOX_ARGS=()
 
     if [[ -n "$BBOX" ]]; then
         BBOX_ARGS=(-b "$BBOX")
     fi
 
+    # setting a swath selection
     SWATH_ARGS=()
 
     if [[ -n "$SWATHS" ]]; then
         SWATH_ARGS=(--swath_num "$SWATHS")
     fi
 
+    # setting the number of processors
     NUMPROC_ARGS=()
 
     if [[ -n "$NUM_PROC" ]]; then
         NUMPROC_ARGS=(--num_proc "$NUM_PROC")
     fi
+
+    # setting the number of processors for topo
+    NUM_PROC4TOPO_ARGS=()
+
+    if [[ -n "$NUM_PROC4TOPO" ]]; then
+        NUM_PROC4TOPO_ARGS=(--num_proc4topo "$NUM_PROC4TOPO")
+    fi
+
+    VIRTUAL_MERGE_ARGS=(-V "$VIRTUAL_MERGE")
+
 
     START_SS=$(date +%s)
 
@@ -401,12 +487,18 @@ if [[ "$RESUME_MODE" == false ]]; then
         -w "$WORKDIR" \
         "${BBOX_ARGS[@]}" \
         "${SWATH_ARGS[@]}" \
-        -m "$REF_DATE" \
+        "${REFDATE_ARGS[@]}" \
+        "${COREG_ARGS[@]}" \
+        "${SNR_ARGS[@]}" \
+        "${ESD_ARGS[@]}" \
+        "${OVERLAP_ARGS[@]}" \
         -c "$C" \
         -z "$Z" \
         -r "$R" \
         -f "$F" \
         "${NUMPROC_ARGS[@]}" \
+        "${NUM_PROC4TOPO_ARGS[@]}" \
+        "${VIRTUAL_MERGE_ARGS[@]}" \
         2>&1 | tee "$WORKDIR/logs/stackSentinel.log"
 
     END_SS=$(date +%s)

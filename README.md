@@ -43,8 +43,6 @@ When adding true after it, it will delete the original /data/orbits folder.
 docker run --rm \
   -v ~/projects/ADUCAT/data:/data \
 
-  ###  optional: stage selection (stage1 | stage2 | stage3)
-  -e STAGE=stage1 \
 
   ### required
   -e OUTPUT_DIR=/data \

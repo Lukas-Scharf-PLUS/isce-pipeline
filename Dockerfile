@@ -5,6 +5,8 @@ USER root
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bash \
+    tcsh \
+    csh \
     ca-certificates \
     curl \
     git \
@@ -29,15 +31,17 @@ RUN git clone --depth=1 https://github.com/isce-framework/isce2.git /opt/isce2-s
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# copy scripts into container
 COPY scripts /scripts
-# make them executable
 RUN find /scripts -type f \( -name "*.sh" -o -name "*.py" \) -exec chmod +x {} \;
-
 
 ENV PATH="/opt/isce2-src/contrib/timeseries/prepStackToStaMPS/bin:/usr/local/bin:${PATH}"
 
 RUN ln -sf /usr/lib/python3.8/dist-packages/isce2/applications/looks.py /usr/local/bin/looks.py
+
+RUN ln -sf /usr/lib/python3.8/dist-packages/isce2/applications/gdal2isce_xml.py /usr/local/bin/gdal2isce_xml.py
+
+# Ensure the StaMPS helper scripts are executable
+RUN chmod +x /opt/isce2-src/contrib/timeseries/prepStackToStaMPS/bin/*
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["bash"]

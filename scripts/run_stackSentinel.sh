@@ -213,16 +213,6 @@ write_parameter_log() {
         gdalinfo --version 2>/dev/null || true
         echo ""
 
-        echo "---- SYSTEM ----"
-        echo "HOSTNAME=$(hostname)"
-        echo ""
-
-        echo "---- MEMORY ----"
-        free -h || true
-        echo ""
-
-        echo "---- DISK ----"
-        df -h "$OUTPUT_DIR" || true
         echo ""
 
         echo "=================================================="
@@ -248,104 +238,83 @@ echo "END_RUN=$END_RUN"
 echo "================================="
 
 # =====================================================
-# === FRESH RUN: SAFE DETECTION + DATE EXTRACTION =====
+# ===  SAFE DETECTION + DATE EXTRACTION =====
 # =====================================================
 
-if [[ "$RESUME_MODE" == false ]]; then
-    
-    if [[ ! -d "$DATA_DIR" ]]; then
-        echo "ERROR: DATA_DIR does not exist"
-        exit 1
-    fi
+if [[ ! -d "$DATA_DIR" ]]; then
+    echo "ERROR: DATA_DIR does not exist"
+    exit 1
+fi
 
-    shopt -s nullglob
+shopt -s nullglob
 
-    SAFE_FILES=("$DATA_DIR"/*.SAFE)
+SAFE_FILES=("$DATA_DIR"/*.SAFE)
 
-    if [[ ${#SAFE_FILES[@]} -eq 0 ]]; then
+if [[ ${#SAFE_FILES[@]} -eq 0 ]]; then
 
-        echo "No SAFE files found directly in DATA_DIR"
-        echo "Trying one level deeper..."
+    echo "No SAFE files found directly in DATA_DIR"
+    echo "Trying one level deeper..."
 
-        SUBDIRS=("$DATA_DIR"/*/)
+    SUBDIRS=("$DATA_DIR"/*/)
 
-        for d in "${SUBDIRS[@]}"; do
+    for d in "${SUBDIRS[@]}"; do
 
-            inner=("$d"/*.SAFE)
+        inner=("$d"/*.SAFE)
 
-            if [[ ${#inner[@]} -gt 0 ]]; then
-                DATA_DIR="$d"
-                SAFE_FILES=("${inner[@]}")
-                break
-            fi
-        done
-    fi
-
-    if [[ ${#SAFE_FILES[@]} -eq 0 ]]; then
-        echo "ERROR: no SAFE files found"
-        exit 1
-    fi
-
-    echo "SAFE count=${#SAFE_FILES[@]}"
-    echo "Using DATA_DIR=$DATA_DIR"
-
-    ORIG_DATA_NAME=$(basename "$DATA_DIR")
-
-    DATES=()
-
-    for f in "${SAFE_FILES[@]}"; do
-
-        fname=$(basename "$f")
-
-        date=$(echo "$fname" | grep -oE '[0-9]{8}' | head -n1 || true)
-
-        if [[ -n "$date" ]]; then
-            DATES+=("$date")
+        if [[ ${#inner[@]} -gt 0 ]]; then
+            DATA_DIR="$d"
+            SAFE_FILES=("${inner[@]}")
+            break
         fi
     done
-
-    IFS=$'\n' SORTED=($(sort <<<"${DATES[*]}"))
-    unset IFS
-
-    MIN_DATE="${SORTED[0]}"
-    MAX_DATE="${SORTED[-1]}"
-
-    RANGE_TAG="${MIN_DATE}_${MAX_DATE}"
-
-    echo "Detected date range:"
-    echo "$MIN_DATE -> $MAX_DATE"
-
-else
-
-    echo "================================="
-    echo "Resume mode:"
-    echo "Skipping SAFE detection"
-    echo "Skipping date extraction"
-    echo "================================="
-
 fi
+
+if [[ ${#SAFE_FILES[@]} -eq 0 ]]; then
+    echo "ERROR: no SAFE files found"
+    exit 1
+fi
+
+echo "SAFE count=${#SAFE_FILES[@]}"
+echo "Using DATA_DIR=$DATA_DIR"
+
+ORIG_DATA_NAME=$(basename "$DATA_DIR")
+
+DATES=()
+
+for f in "${SAFE_FILES[@]}"; do
+
+    fname=$(basename "$f")
+
+    date=$(echo "$fname" | grep -oE '[0-9]{8}' | head -n1 || true)
+
+    [[ -n "$date" ]] && DATES+=("$date")
+
+done
+
+IFS=$'\n' SORTED=($(sort <<<"${DATES[*]}"))
+unset IFS
+
+MIN_DATE="${SORTED[0]}"
+MAX_DATE="${SORTED[-1]}"
+
+RANGE_TAG="${MIN_DATE}_${MAX_DATE}"
+
+echo "Detected date range:"
+echo "$MIN_DATE -> $MAX_DATE"
+
 
 # =========================
 # === WORKDIR ============
 # =========================
 
-if [[ "$RESUME_MODE" == false ]]; then
+WORKDIR="${OUTPUT_DIR}/stack_${ORIG_DATA_NAME}_${RANGE_TAG}_c${C}_z${Z}_r${R}_f${F}"
 
-    WORKDIR="${OUTPUT_DIR}/stack_${ORIG_DATA_NAME}_${RANGE_TAG}_c${C}_z${Z}_r${R}_f${F}"
+echo "WORKDIR=$WORKDIR"
 
-else
-
-    WORKDIR=$(find "$OUTPUT_DIR" \
-        -maxdepth 1 \
-        -type d \
-        -name "stack_*" \
-        | head -n1)
-
-    if [[ -z "$WORKDIR" ]]; then
-        echo "ERROR: no stack directory found in $OUTPUT_DIR"
-        exit 1
-    fi
-
+if [[ "$RESUME_MODE" == true && ! -d "$WORKDIR" ]]; then
+    echo "ERROR: WORKDIR does not exist:"
+    echo "$WORKDIR"
+    exit 1
 fi
 
 echo "WORKDIR=$WORKDIR"
@@ -597,4 +566,34 @@ printf "TOTAL: %02d:%02d (mm:ss)\n" \
     $((TOTAL_TIME%60)) \
     | tee -a "$WORKDIR/timing.log"
 
+
+# =====================================================
+# === DISK USAGE SUMMARY ==============================
+# =====================================================
+
+{
+    echo
+    echo "================================="
+    echo "DISK USAGE SUMMARY"
+    echo "================================="
+
+    echo
+    echo "Filesystem usage:"
+    df -h /data
+
+    echo
+    echo "Data directories (/data):"
+    du -sh /data/*/ 2>/dev/null | sort -h
+
+    echo
+    echo "Current workflow:"
+    du -sh "$WORKDIR"
+
+    echo
+    echo "Workflow folders:"
+    du -sh "$WORKDIR"/*/ 2>/dev/null | sort -h
+
+} | tee -a "$WORKDIR/disk_usage.log"
+
+echo
 echo "=== DONE ==="

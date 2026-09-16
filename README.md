@@ -2,9 +2,8 @@ This project is a work in progress. Functionality and correctness are not guaran
 
 # Local runs:
 
-these functions are not longer supported
 
-## fetch and normalize orbits
+## fetch and normalize orbits (not longer relevant/supported)
 
 cd ~/projects/ADUCAT
 

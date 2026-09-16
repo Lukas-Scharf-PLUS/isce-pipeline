@@ -1,6 +1,8 @@
-
+This project is a work in progress. Functionality and correctness are not guaranteed, and any use is at your own risk.
 
 # Local runs:
+
+these functions are not longer supported
 
 ## fetch and normalize orbits
 

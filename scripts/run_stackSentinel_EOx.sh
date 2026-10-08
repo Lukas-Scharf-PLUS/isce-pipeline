@@ -24,6 +24,9 @@ echo "=================================================="
 : "${DEM:=}"
 : "${AUX_DIR:=${OUTPUT_DIR}/aux}"
 
+# Workflow
+: "${WORKFLOW:=interferogram}"
+
 # stackSentinel preparation
 : "${PREPARE_STACK:=false}"
 
@@ -49,6 +52,7 @@ echo "=================================================="
 
 # Number of overlapping connections
 : "${NUM_OVERLAP_CONNECTIONS:=}"
+
 
 # Interferogram formation
 : "${C:=2}"
@@ -174,6 +178,8 @@ echo "DATA_DIR=${DATA_DIR:-<not set>}"
 echo "ORB_DIR=${ORB_DIR:-<not set>}"
 echo "DEM=${DEM:-<not set>}"
 echo "AUX_DIR=$AUX_DIR"
+
+echo "WORKFLOW=$WORKFLOW"
 
 echo ""
 echo "---- AOI ----"
@@ -504,6 +510,7 @@ if [[ "$PREPARE_STACK" == "true" ]]; then
         -a "$AUX_DIR" \
         -d "$DEM" \
         -w "$OUTPUT_DIR" \
+        -W "$WORKFLOW" \
         "${BBOX_ARGS[@]}" \
         "${SWATH_ARGS[@]}" \
         "${REFDATE_ARGS[@]}" \

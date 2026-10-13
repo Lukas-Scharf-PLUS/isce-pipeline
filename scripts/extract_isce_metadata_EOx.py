@@ -11,10 +11,19 @@ python extract_isce_metadata.py \
 
 from pathlib import Path
 import argparse
+import os
 import yaml
-from typing import List, Iterable
+from typing import List, Iterable, Optional
 import xml.etree.ElementTree as ET
 from datetime import datetime
+
+
+def optional_int(value: str):
+    return None if value.strip() == "" else int(value)
+
+
+def optional_float(value: str):
+    return None if value.strip() == "" else float(value)
 
 
 def parse_args():
@@ -24,9 +33,11 @@ def parse_args():
 
     parser.add_argument(
         "--output-dir",
+        "--workdir",
+        dest="output_dir",
         type=Path,
-        required=True,
-        help="Path to the ISCE processing directory (OUTPUT_DIR)."
+        default=os.environ.get("OUTPUT_DIR"),
+        help="Path to the ISCE processing directory (default: OUTPUT_DIR)."
     )
 
     parser.add_argument(
@@ -52,29 +63,29 @@ def parse_args():
 
     parser.add_argument(
         "--range-looks",
-        type=int,
-        required=True,
+        type=optional_int,
+        default=None,
         help="Number of range looks"
     )
 
     parser.add_argument(
         "--azimuth-looks",
-        type=int,
-        required=True,
+        type=optional_int,
+        default=None,
         help="Number of azimuth looks"
     )
 
     parser.add_argument(
         "--connections",
-        type=int,
-        required=True,
+        type=optional_int,
+        default=None,
         help="Number of interferometric connections"
     )
 
     parser.add_argument(
         "--filter-strength",
-        type=float,
-        required=True,
+        type=optional_float,
+        default=None,
         help="Goldstein filter strength"
     )
 
@@ -85,7 +96,12 @@ def parse_args():
         help="Bounding box (south north west east)"
     )
 
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    if args.output_dir is None:
+        parser.error("--output-dir is required unless OUTPUT_DIR is set")
+
+    return args
 
 
 def require_dir(path: Path):
@@ -176,7 +192,7 @@ def detect_reference_date(output_dir: Path) -> str:
     return references.pop()
 
 
-def detect_isce_version(output_dir: Path) -> str:
+def detect_isce_version(output_dir: Path) -> Optional[str]:
     """
     Detect the ISCE version from the merged SLC XML metadata.
     """
@@ -185,7 +201,12 @@ def detect_isce_version(output_dir: Path) -> str:
 
     require_dir(slc_dir)
 
-    xml_file = first_file(slc_dir.glob("*/*.xml"))
+    xml_files = (
+        path
+        for path in slc_dir.glob("*/*.xml")
+        if not path.name.endswith(".aux.xml")
+    )
+    xml_file = first_file(xml_files)
 
     tree = ET.parse(xml_file)
     root = tree.getroot()
@@ -197,12 +218,14 @@ def detect_isce_version(output_dir: Path) -> str:
 
         value = prop.find("value")
 
-        if value is None:
-            break
+        if value is None or value.text is None:
+            continue
 
-        return value.text.strip()
+        version = value.text.strip()
+        if version:
+            return version
 
-    raise RuntimeError("Could not determine ISCE version.")
+    return None
 
 
 def parse_bbox(bbox: str) -> List[float]:
@@ -328,6 +351,19 @@ def main():
 
     args = parse_args()
 
+    processing = {}
+
+    for key, value in (
+        ("range_looks", args.range_looks),
+        ("azimuth_looks", args.azimuth_looks),
+        ("connections", args.connections),
+        ("filter_strength", args.filter_strength),
+    ):
+        if value is not None:
+            processing[key] = value
+
+    processing["bbox"] = parse_bbox(args.bbox)
+
     # OUTPUT_DIR is the actual ISCE working directory.
     # There is no additional stack_* directory anymore.
     output_dir = args.output_dir.resolve()
@@ -372,13 +408,7 @@ def main():
             "acquisitions": acquisitions,
         },
 
-        "processing": {
-            "range_looks": args.range_looks,
-            "azimuth_looks": args.azimuth_looks,
-            "connections": args.connections,
-            "filter_strength": args.filter_strength,
-            "bbox": parse_bbox(args.bbox)
-        },
+        "processing": processing,
 
         "radar": {
             "wavelength": detect_wavelength(output_dir),
